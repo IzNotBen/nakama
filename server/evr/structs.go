@@ -59,7 +59,7 @@ type Chunk struct {
 		LobbyPlayerSessionsRequest         *LobbyPlayerSessionsRequest        `struct-case:"0x9af2fab2a0c81a05" json:",omitempty"`
 		LobbyPlayerSessionsSuccessv2       *LobbyPlayerSessionsSuccessv2      `struct-case:"0xa1b9cae1f8588968" json:",omitempty"`
 		LobbyPlayerSessionsSuccessv3       *LobbyPlayerSessionsSuccessv3      `struct-case:"0xa1b9cae1f8588969" json:",omitempty"`
-		LoginRequest                       *LoginRequest                      `struct-case:"0xbdb41ea9e67b200a" json:",omitempty"`
+		LoginRequest                       *LoginRequestV2                    `struct-case:"0xbdb41ea9e67b200a" json:",omitempty"`
 		LoginSuccess                       *LoginSuccess                      `struct-case:"0xa5acc1a90d0cce47" json:",omitempty"`
 		LoginFailure                       *LoginFailure                      `struct-case:"0xa5b9d5a3021ccf51" json:",omitempty"`
 		BroadcasterRegistrationFailure     *BroadcasterRegistrationFailure    `struct-case:"0xb56f25c7dfe6ffc9" json:",omitempty"`

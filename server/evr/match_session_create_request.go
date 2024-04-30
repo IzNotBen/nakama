@@ -79,7 +79,7 @@ func (m *LobbyCreateSessionRequest) String() string {
 	)
 }
 
-func (m *LobbyCreateSessionRequest) SessionID() uuid.UUID {
+func (m *LobbyCreateSessionRequest) GetSessionID() uuid.UUID {
 	return m.LoginSessionID
 }
 

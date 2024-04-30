@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ func msgFailedLoginFn(session *sessionWS, evrId evr.EvrId, err error) error {
 
 // loginRequest handles the login request from the client.
 func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
-	request := in.(*evr.LoginRequest)
+	request := in.(evr.LoginRequest)
 
 	// Start a timer to add to the metrics
 	timer := time.Now()
@@ -83,17 +84,17 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	// TODO At some point EVR-ID's should be assigned, not accepted.
 
 	// Validate the user identifier
-	if !request.EvrId.Valid() {
-		return msgFailedLoginFn(session, request.EvrId, status.Error(codes.InvalidArgument, "invalid EVR ID"))
+	if !request.GetEvrID().Valid() {
+		return msgFailedLoginFn(session, request.GetEvrID(), status.Error(codes.InvalidArgument, "invalid EVR ID"))
 	}
 
-	payload := request.LoginData
+	payload := request.GetLoginProfile()
 
 	// Construct the device auth token from the login payload
 	deviceId := &DeviceId{
-		AppId:           payload.AppId,
-		EvrId:           request.EvrId,
-		HmdSerialNumber: payload.HmdSerialNumber,
+		AppId:           payload.GetAppID(),
+		EvrId:           request.GetEvrID(),
+		HmdSerialNumber: payload.GetHMDSerialNumber(),
 	}
 
 	// Providing a discord ID and password avoids the need to link the device to the account.
@@ -102,16 +103,16 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	discordId, _ := ctx.Value(ctxDiscordIdKey{}).(string)
 
 	// Authenticate the connection
-	loginSettings, err := p.processLogin(ctx, logger, session, request.EvrId, deviceId, discordId, userPassword, payload)
+	loginSettings, err := p.processLogin(ctx, session, request.GetEvrID(), deviceId, discordId, userPassword, payload)
 	if err != nil {
 		st := status.Convert(err)
-		return msgFailedLoginFn(session, request.EvrId, errors.New(st.Message()))
+		return msgFailedLoginFn(session, request.GetEvrID(), errors.New(st.Message()))
 	}
 
 	// Let the client know that the login was successful.
 	// Send the login success message and the login settings.
 	return session.SendEvr(
-		evr.NewLoginSuccess(session.id, request.EvrId),
+		evr.NewLoginSuccess(session.id, request.GetEvrID()),
 		evr.NewSTcpConnectionUnrequireEvent(),
 		evr.NewSNSLoginSettings(loginSettings),
 	)
@@ -170,7 +171,7 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	}
 
 	flags := 0
-	if loginProfile.SystemInfo.HeadsetType == "No VR" {
+	if loginProfile.GetHeadsetType() == "No VR" {
 		flags |= FlagNoVR
 	}
 
@@ -201,8 +202,10 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		groupID = memberships[0].GuildGroup.ID()
 	}
 
+	version := strconv.FormatUint(loginProfile.GetLobbyVersion(), 16)
+
 	// Initialize the full session
-	if err := session.LoginSession(userId, user.GetUsername(), evrId, deviceId, groupID, flags); err != nil {
+	if err := session.LoginSession(userId, user.GetUsername(), evrId, deviceId, groupID, flags, version); err != nil {
 		return settings, fmt.Errorf("failed to login: %w", err)
 	}
 	ctx = session.Context()

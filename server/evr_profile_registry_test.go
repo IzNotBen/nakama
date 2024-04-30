@@ -82,10 +82,10 @@ func TestGetSessionProfile(t *testing.T) {
 	profile := GameProfileData{
 		Client: evr.NewClientProfile(),
 		Server: evr.NewServerProfile(),
-		Login:  evr.LoginProfile{},
+		Login:  evr.LoginProfileV2{},
 	}
 
-	loginProfile := evr.LoginProfile{
+	loginProfile := evr.LoginProfileV2{
 		PublisherLock: "publisherlock",
 		LobbyVersion:  123456,
 	}
@@ -177,7 +177,7 @@ func TestUpdateEquippedItem(t *testing.T) {
 func TestGameProfileData_UpdateUnlocks(t *testing.T) {
 	type fields struct {
 		RWMutex sync.RWMutex
-		Login   evr.LoginProfile
+		Login   evr.LoginProfileV2
 		Client  evr.ClientProfile
 		Server  evr.ServerProfile
 	}

@@ -89,7 +89,7 @@ func NewLobbyFindSessionRequest(versionLock uint64, matchMode Symbol, matchLevel
 	}
 }
 
-func (m *LobbyFindSessionRequest) SessionID() uuid.UUID {
+func (m *LobbyFindSessionRequest) GetSessionID() uuid.UUID {
 	return m.LoginSessionID
 }
 

@@ -51,9 +51,10 @@ const (
 	VRMLStorageCollection        = "VRML"
 
 	// The Application ID for Echo VR
-	NoOvrAppId uint64 = 0x0
-	QuestAppId uint64 = 0x7de88f07bd07a
-	PcvrAppId  uint64 = 0x4dd2b684a47fa
+	NoOvrAppId        uint64 = 0x0
+	QuestAppId        uint64 = 0x7de88f07bd07a
+	PcvrAppId         uint64 = 0x4dd2b684a47fa
+	SummerSplaceAppID uint64 = 0x4DC5C0C97A608
 )
 
 var (

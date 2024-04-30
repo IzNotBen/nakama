@@ -60,7 +60,7 @@ func (m *LobbyPlayerSessionsRequest) String() string {
 	)
 }
 
-func (m *LobbyPlayerSessionsRequest) SessionID() uuid.UUID {
+func (m *LobbyPlayerSessionsRequest) GetSessionID() uuid.UUID {
 	return m.Session
 }
 

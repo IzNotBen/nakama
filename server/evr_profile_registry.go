@@ -669,7 +669,7 @@ func (r *ProfileRegistry) UpdateEntitledCosmetics(ctx context.Context, userID uu
 	}
 
 	// Unlock if the user has been a quest user.
-	if strings.Contains(profile.Login.SystemInfo.HeadsetType, "Quest") {
+	if strings.Contains(profile.Login.GetHeadsetType(), "Quest") {
 		arena.DecalQuestLaunchA = true
 		arena.PatternQuestA = true
 	}
@@ -764,8 +764,8 @@ func (r *ProfileRegistry) GetSessionProfile(ctx context.Context, session *sessio
 		p = r.NewGameProfile()
 	}
 	p.Login = loginProfile
-	p.Server.PublisherLock = p.Login.PublisherLock
-	p.Server.LobbyVersion = p.Login.LobbyVersion
+	p.Server.PublisherLock = p.Login.GetPublisherLock()
+	p.Server.LobbyVersion = p.Login.GetLobbyVersion()
 
 	// Update the account
 	if err := r.discordRegistry.UpdateAccount(ctx, session.userID); err != nil {

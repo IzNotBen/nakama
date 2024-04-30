@@ -251,7 +251,7 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 	}
 }
 
-func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId, deviceId *DeviceId, groupID uuid.UUID, flags int) error {
+func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId, deviceId *DeviceId, groupID uuid.UUID, flags int, version string) error {
 	// Each player has a single login connection, which will act as the core session.
 	// When this connection is terminated, all other connections should be terminated.
 
@@ -272,6 +272,7 @@ func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId
 	ctx = context.WithValue(ctx, ctxUsernameKey{}, username)                   // apiServer compatibility
 	ctx = context.WithValue(ctx, ctxFlagsKey{}, flags)
 	ctx = context.WithValue(ctx, ctxGroupIDKey{}, groupID)
+	ctx = context.WithValue(ctx, ctxVersionKey{}, version)
 
 	s.Lock()
 	s.ctx = ctx

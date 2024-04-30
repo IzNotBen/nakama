@@ -274,7 +274,7 @@ func (p *EvrPipeline) ProcessRequestEvr(logger *zap.Logger, session *sessionWS, 
 	// Login Service
 	case *evr.RemoteLogSet:
 		pipelineFn = p.remoteLogSetv3
-	case *evr.LoginRequest:
+	case evr.LoginRequest:
 		requireAuthed = false
 		pipelineFn = p.loginRequest
 	case *evr.DocumentRequest:

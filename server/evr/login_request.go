@@ -7,45 +7,69 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
-var Symbol_SNSLoginRequestv2 Symbol = LoginFailure{}.Symbol()
-
-// LoginRequest represents a message from client to server requesting for a user sign-in.
-type LoginRequest struct {
-	Session   uuid.UUID    `json:"Session"` // This is the old session id, if it had one.
-	EvrId     EvrId        `json:"UserId"`
-	LoginData LoginProfile `json:"LoginData"`
+type LoginRequest interface {
+	GetSessionID() uuid.UUID
+	GetEvrID() EvrId
+	GetLoginProfile() LoginProfile
 }
 
-func (m LoginRequest) Token() string   { return "SNSLogInRequestv2" }
-func (m *LoginRequest) Symbol() Symbol { return SymbolOf(m) }
-
-func (lr LoginRequest) String() string {
-	return fmt.Sprintf("%s(session=%v, user_id=%s, login_data=%s)",
-		lr.Token(), lr.Session, lr.EvrId.String(), lr.LoginData.String())
+type LoginProfile interface {
+	GetHeadsetType() string
+	GetHMDSerialNumber() string
+	GetPublisherLock() string
+	GetLobbyVersion() uint64
+	GetAppID() uint64
 }
 
-func (m *LoginRequest) Stream(s *EasyStream) error {
+var _ = LoginRequest(&LoginRequestV2{})
+
+// LoginRequestV2 represents a message from client to server requesting for a user sign-in.
+type LoginRequestV2 struct {
+	Session uuid.UUID      `json:"Session"` // This is the old session id, if it had one.
+	EvrId   EvrId          `json:"UserId"`
+	Profile LoginProfileV2 `json:"LoginData"`
+}
+
+func (lr LoginRequestV2) GetEvrID() EvrId {
+	return lr.EvrId
+}
+
+func (m LoginRequestV2) GetSessionID() uuid.UUID {
+	return m.Session
+}
+
+func (m LoginRequestV2) GetLoginProfile() LoginProfile {
+	return m.Profile
+}
+
+func (lr LoginRequestV2) String() string {
+	return fmt.Sprintf("LoginRequestV2(session=%v, user_id=%s, login_data=%s)", lr.Session, lr.EvrId.String(), lr.Profile.String())
+}
+
+func (m *LoginRequestV2) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamGuid(&m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
-		func() error { return s.StreamJson(&m.LoginData, true, NoCompression) },
+		func() error { return s.StreamJson(&m.Profile, true, NoCompression) },
 	})
 }
 
-func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfile) (*LoginRequest, error) {
-	return &LoginRequest{
-		Session:   session,
-		EvrId:     userId,
-		LoginData: loginData,
+func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfileV2) (*LoginRequestV2, error) {
+	return &LoginRequestV2{
+		Session: session,
+		EvrId:   userId,
+		Profile: loginData,
 	}, nil
 }
 
-func (m *LoginRequest) EvrID() EvrId {
+func (m *LoginRequestV2) EvrID() EvrId {
 	return m.EvrId
 }
 
-type LoginProfile struct {
+var _ = LoginProfile(LoginProfileV2{})
+
+type LoginProfileV2 struct {
 	// WARNING: EchoVR dictates this schema.
 	AccountId                   uint64     `json:"accountid"`
 	DisplayName                 string     `json:"displayname"`
@@ -61,9 +85,29 @@ type LoginProfile struct {
 	SystemInfo                  SystemInfo `json:"system_info"`
 }
 
-func (ld *LoginProfile) String() string {
+func (ld *LoginProfileV2) String() string {
 	return fmt.Sprintf("%s(account_id=%d, display_name=%s, hmd_serial_number=%s, "+
 		")", "LoginData", ld.AccountId, ld.DisplayName, ld.HmdSerialNumber)
+}
+
+func (p LoginProfileV2) GetHeadsetType() string {
+	return p.SystemInfo.HeadsetType
+}
+
+func (p LoginProfileV2) GetPublisherLock() string {
+	return p.PublisherLock
+}
+
+func (p LoginProfileV2) GetLobbyVersion() uint64 {
+	return p.LobbyVersion
+}
+
+func (p LoginProfileV2) GetAppID() uint64 {
+	return p.AppId
+}
+
+func (p LoginProfileV2) GetHMDSerialNumber() string {
+	return p.HmdSerialNumber
 }
 
 type GraphicsSettings struct {
