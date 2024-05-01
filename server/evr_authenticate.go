@@ -26,9 +26,9 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-const (
-	SystemUserID = "00000000-0000-0000-0000-000000000000"
+var SystemUserID = uuid.Nil.String()
 
+const (
 	LinkTicketCollection         = "LinkTickets"
 	LinkTicketIndex              = "Index_" + LinkTicketCollection
 	DiscordAccessTokenCollection = "DiscordAccessTokens"

@@ -64,6 +64,6 @@ func (m *LobbyPlayerSessionsRequest) GetSessionID() uuid.UUID {
 	return m.Session
 }
 
-func (m *LobbyPlayerSessionsRequest) EvrID() EvrId {
+func (m *LobbyPlayerSessionsRequest) GetEvrID() EvrId {
 	return m.EvrId
 }

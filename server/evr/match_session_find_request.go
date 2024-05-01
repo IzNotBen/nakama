@@ -93,6 +93,6 @@ func (m *LobbyFindSessionRequest) GetSessionID() uuid.UUID {
 	return m.LoginSessionID
 }
 
-func (m *LobbyFindSessionRequest) EvrID() EvrId {
+func (m *LobbyFindSessionRequest) GetEvrID() EvrId {
 	return m.EvrId
 }

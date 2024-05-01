@@ -10,7 +10,7 @@ import (
 type ReconcileIAP struct {
 	Message
 	Session uuid.UUID
-	EvrId   EvrId
+	EvrID   EvrId
 }
 
 func (m ReconcileIAP) Token() string {
@@ -27,7 +27,7 @@ func (m ReconcileIAP) String() string {
 
 func NewReconcileIAP(userID EvrId, session uuid.UUID) *ReconcileIAP {
 	return &ReconcileIAP{
-		EvrId:   userID,
+		EvrID:   userID,
 		Session: session,
 	}
 }
@@ -35,18 +35,18 @@ func NewReconcileIAP(userID EvrId, session uuid.UUID) *ReconcileIAP {
 func (r *ReconcileIAP) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamGuid(&r.Session) },
-		func() error { return s.StreamStruct(&r.EvrId) },
+		func() error { return s.StreamStruct(&r.EvrID) },
 	})
 }
 
 func (r *ReconcileIAP) ToString() string {
-	return fmt.Sprintf("%s(user_id=%s, session=%v)", r.Token(), r.EvrId.Token(), r.Session)
+	return fmt.Sprintf("%s(user_id=%s, session=%v)", r.Token(), r.EvrID.Token(), r.Session)
 }
 
 func (m *ReconcileIAP) GetSessionID() uuid.UUID {
 	return m.Session
 }
 
-func (m *ReconcileIAP) EvrID() EvrId {
-	return m.EvrId
+func (m *ReconcileIAP) GetEvrID() EvrId {
+	return m.EvrID
 }

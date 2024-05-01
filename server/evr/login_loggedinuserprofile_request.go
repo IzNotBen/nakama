@@ -46,7 +46,7 @@ func (m *LoggedInUserProfileRequest) GetSessionID() uuid.UUID {
 	return m.Session
 }
 
-func (m *LoggedInUserProfileRequest) EvrID() EvrId {
+func (m *LoggedInUserProfileRequest) GetEvrID() EvrId {
 	return m.EvrId
 }
 

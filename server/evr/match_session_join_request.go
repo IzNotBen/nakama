@@ -121,6 +121,6 @@ func (m *LobbyJoinSessionRequest) GetSessionID() uuid.UUID {
 	return m.LoginSessionID
 }
 
-func (m *LobbyJoinSessionRequest) EvrID() EvrId {
+func (m *LobbyJoinSessionRequest) GetEvrID() EvrId {
 	return m.EvrId
 }

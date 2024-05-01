@@ -44,6 +44,6 @@ func (m *LoginSuccess) GetSessionID() uuid.UUID {
 	return m.Session
 }
 
-func (m *LoginSuccess) EvrID() EvrId {
+func (m *LoginSuccess) GetEvrID() EvrId {
 	return m.EvrId
 }

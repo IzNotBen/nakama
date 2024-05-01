@@ -63,10 +63,6 @@ func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfileV2) 
 	}, nil
 }
 
-func (m *LoginRequestV2) EvrID() EvrId {
-	return m.EvrId
-}
-
 var _ = LoginProfile(LoginProfileV2{})
 
 type LoginProfileV2 struct {
