@@ -613,19 +613,10 @@ func (m *EvrMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 				// This is a parking match. do nothing.
 				continue
 			}
+
 			if state.Channel == nil {
 				logger.Error("Channel is nil. This shouldn't happen.")
 				state.Channel = &uuid.Nil
-			}
-			// Tell the broadcaster to load the level.
-			messages := []evr.Message{
-				evr.NewBroadcasterStartSession(state.MatchID, *state.Channel, state.MaxSize, uint8(state.LobbyType), state.Broadcaster.AppId, state.Mode, state.Level, []string{}, []evr.EvrId{}),
-			}
-			state.StartedAt = time.Now()
-			// Dispatch the message for delivery.
-			if err := m.dispatchMessages(ctx, logger, dispatcher, messages, []runtime.Presence{state.broadcaster}, nil); err != nil {
-				logger.Error("failed to dispatch load message to broadcaster: %v", err)
-				return nil
 			}
 
 			// If there are already players in this match, then notify them to load.
@@ -640,7 +631,16 @@ func (m *EvrMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 		}
 
 		// This is a player joining
-		sessionID := uuid.FromStringOrNil(p.GetSessionId())
+		if !state.Started {
+			// Tell the broadcaster to start the session.
+			err := m.StartSession(ctx, logger, nk, dispatcher, state)
+			if err != nil {
+				logger.Error("failed to start session, disconnecting broadcaster: %v", err)
+				nk.SessionDisconnect(ctx, state.Broadcaster.SessionID, runtime.PresenceReasonUnknown)
+				return nil
+			}
+		}
+		sessionID := p.GetSessionId()
 		// the cache entry is kept even after a player leaves. This helps put them back on the same team.
 		matchPresence, ok := state.presences[sessionID]
 		if !ok {
@@ -906,14 +906,13 @@ func (m *EvrMatch) MatchSignal(ctx context.Context, logger runtime.Logger, db *s
 		return nil, "state not a valid lobby state object"
 	}
 
-	// TODO protobuf's would be nice here.
-	signal := &EvrSignal{}
-	err := json.Unmarshal([]byte(data), signal)
+	signal := interface{}(nil)
+	err := json.Unmarshal([]byte(data), &signal)
 	if err != nil {
 		return state, fmt.Sprintf("failed to unmarshal signal: %v", err)
 	}
 
-	switch signal.Signal {
+	switch signal := signal.(type) {
 	case SignalTerminate:
 		return m.MatchTerminate(ctx, logger, db, nk, dispatcher, tick, state, 10), "terminating match"
 
@@ -949,14 +948,7 @@ func (m *EvrMatch) MatchSignal(ctx context.Context, logger runtime.Logger, db *s
 			return state, "session already started"
 		}
 
-		newState, _, _, err := NewEvrMatchState(state.Broadcaster.Endpoint, &state.Broadcaster, state.MatchID.String(), state.Node)
-		if err != nil {
-			return state, fmt.Sprintf("failed to create new match state: %v", err)
-		}
-		err = json.Unmarshal(signal.Data, newState)
-		if err != nil {
-			return state, fmt.Sprintf("failed to unmarshal match label: %v", err)
-		}
+		newState := signal.State
 		matchId, _ := MatchIdFromContext(ctx)
 		state.Started = false
 		state.SpawnedBy = newState.SpawnedBy
@@ -987,27 +979,17 @@ func (m *EvrMatch) MatchSignal(ctx context.Context, logger runtime.Logger, db *s
 			}
 		}
 
-		return state, "session prepared"
-
-	case SignalStartSession:
-
-		// Tell the broadcaster to start the session.
-		state, err := m.StartSession(ctx, logger, nk, dispatcher, state)
-		if err != nil {
-			return state, fmt.Sprintf("failed to start session: %v", err)
-		}
-		logger.Debug("Session started. %v", state)
-		return state, "session started"
+		return state, ""
 
 	default:
-		logger.Warn("Unknown signal: %v", signal.Signal)
+		logger.Warn("Unknown signal: %v", signal)
 		return state, "unknown signal"
 	}
 	return state, ""
 
 }
 
-func (m *EvrMatch) StartSession(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, dispatcher runtime.MatchDispatcher, state *EvrMatchState) (*EvrMatchState, error) {
+func (m *EvrMatch) StartSession(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, dispatcher runtime.MatchDispatcher, state *EvrMatchState) error {
 	channel := uuid.Nil
 	if state.Channel != nil {
 		channel = *state.Channel
@@ -1027,26 +1009,19 @@ func (m *EvrMatch) StartSession(ctx context.Context, logger runtime.Logger, nk r
 
 	// Dispatch the message for delivery.
 	if err := m.dispatchMessages(ctx, logger, dispatcher, messages, []runtime.Presence{state.broadcaster}, nil); err != nil {
-		return state, fmt.Errorf("failed to dispatch message: %v", err)
+		return fmt.Errorf("failed to dispatch message: %v", err)
 	}
-	return state, nil
+	return nil
 }
 
 // SignalMatch is a helper function to send a signal to a match.
-func SignalMatch(ctx context.Context, matchRegistry MatchRegistry, matchId string, signalId int64, data interface{}) (string, error) {
-	dataJson, err := json.Marshal(data)
+func SignalMatch(ctx context.Context, matchRegistry MatchRegistry, matchId string, data interface{}) (string, error) {
+	signal, err := json.Marshal(data)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal match label: %v", err)
 	}
-	signal := EvrSignal{
-		Signal: signalId,
-		Data:   dataJson,
-	}
-	signalJson, err := json.Marshal(signal)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal match signal: %v", err)
-	}
-	return matchRegistry.Signal(ctx, matchId, string(signalJson))
+
+	return matchRegistry.Signal(ctx, matchId, string(signal))
 }
 
 func (m *EvrMatch) dispatchMessages(_ context.Context, logger runtime.Logger, dispatcher runtime.MatchDispatcher, messages []evr.Message, presences []runtime.Presence, sender runtime.Presence) error {

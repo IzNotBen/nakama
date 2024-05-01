@@ -647,16 +647,16 @@ func (p *EvrPipeline) MatchCreate(ctx context.Context, session *sessionWS, msess
 
 	label.SpawnedBy = session.UserID().String()
 
+	prepareSignal := SignalPrepareSession{
+		State: *label,
+	}
 	// Prepare the match
-	_, err = SignalMatch(ctx, p.matchRegistry, parkingMatchId, SignalPrepareSession, label)
+	response, err := SignalMatch(ctx, p.matchRegistry, parkingMatchId, prepareSignal)
 	if err != nil {
 		return "", fmt.Errorf("failed to load level: %v", err)
 	}
-
-	// Instruct the server to load the level
-	_, err = SignalMatch(ctx, p.matchRegistry, parkingMatchId, SignalStartSession, label)
-	if err != nil {
-		return "", fmt.Errorf("failed to load level: %v", err)
+	if response != "" {
+		return "", fmt.Errorf("failed to prepare match: %s", response)
 	}
 	<-time.After(5 * time.Second)
 	// Return the newly active match.

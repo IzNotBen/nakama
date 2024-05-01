@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -987,9 +988,15 @@ func (p *EvrPipeline) pruneMatches(ctx context.Context, session *sessionWS) erro
 	if err != nil {
 		return err
 	}
+	signal := SignalPruneUnderutilized{}
+
+	signalData, err := json.Marshal(signal)
+	if err != nil {
+		return err
+	}
 
 	for _, match := range matches {
-		_, err := SignalMatch(ctx, p.matchRegistry, match.MatchId, SignalPruneUnderutilized, nil)
+		_, err := SignalMatch(ctx, p.matchRegistry, match.MatchId, signalData)
 		if err != nil {
 			return err
 

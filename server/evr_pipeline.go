@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -251,6 +250,7 @@ func (p *EvrPipeline) SetApiServer(apiServer *ApiServer) {
 func (p *EvrPipeline) Stop() {}
 
 func (p *EvrPipeline) ProcessRequestEvr(logger *zap.Logger, session *sessionWS, in evr.Message) bool {
+	logger = logger.With(zap.String("username", session.Username()))
 	if in == nil {
 		logger.Error("Received nil message, disconnecting client.")
 		return false
@@ -472,45 +472,19 @@ func (p *EvrPipeline) relayMatchData(ctx context.Context, logger *zap.Logger, se
 	return nil
 }
 
-// An Alternative way to get the data into the match. This is used when the match is not yet joined.
-func (p *EvrPipeline) MatchSignalData(logger *zap.Logger, session *sessionWS, matchId string, in evr.Message) error {
-	requestJson, err := json.Marshal(in)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-	signal := &EvrSignal{
-		UserId: session.UserID().String(),
-		Signal: int64(evr.SymbolOf(in)),
-		Data:   requestJson,
-	}
-	b, err := json.Marshal(signal)
-	if err != nil {
-		return fmt.Errorf("failed to marshal signal: %w", err)
-	}
-
-	_, err = p.matchRegistry.Signal(session.Context(), matchId, string(b))
-	if err != nil {
-		return fmt.Errorf("failed to signal match: %w", err)
-	}
-	return nil
-}
-
 // sendMatchData sends the data to the match.
-func sendMatchData(matchRegistry MatchRegistry, matchIdStr string, session *sessionWS, in evr.Message) error {
-	matchIDComponents := strings.SplitN(matchIdStr, ".", 2)
-	if len(matchIDComponents) != 2 {
-		return fmt.Errorf("invalid match id: %s", matchIdStr)
-	}
-	matchId := uuid.FromStringOrNil(matchIDComponents[0])
-	matchNode := matchIDComponents[1]
+func sendMatchData(matchRegistry MatchRegistry, matchIDStr string, session *sessionWS, in evr.Message) error {
+	token := MatchToken(matchIDStr)
+
 	requestJson, err := json.Marshal(in)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
+
 	// Set the OpCode to the symbol of the message.
 	opCode := int64(evr.SymbolOf(in))
 	// Send the data to the match.
-	matchRegistry.SendData(matchId, matchNode, session.UserID(), session.ID(), session.Username(), matchNode, opCode, requestJson, true, time.Now().UTC().UnixNano()/int64(time.Millisecond))
+	matchRegistry.SendData(token.ID(), token.Node(), session.UserID(), session.ID(), session.Username(), token.Node(), opCode, requestJson, true, time.Now().UTC().UnixNano()/int64(time.Millisecond))
 
 	return nil
 }

@@ -831,21 +831,20 @@ func (mr *MatchmakingRegistry) allocateBroadcaster(channels []uuid.UUID, config 
 	}
 	// Found a match
 	label.SpawnedBy = SystemUserID
-	// Instruct the server to prepare the level
-	response, err := SignalMatch(mr.ctx, mr.matchRegistry, matchID, SignalPrepareSession, label)
-	if err != nil {
-		return "", fmt.Errorf("error signaling match: %s: %v", response, err)
+
+	prepareSignal := SignalPrepareSession{
+		State: *label,
 	}
-	// Instruct the server to load the level
-	response, err = SignalMatch(mr.ctx, mr.matchRegistry, matchID, SignalStartSession, label)
+	// Instruct the server to prepare the level
+	response, err := SignalMatch(mr.ctx, mr.matchRegistry, matchID, prepareSignal)
 	if err != nil {
 		return "", fmt.Errorf("error signaling match: %s: %v", response, err)
 	}
 
 	<-time.After(5 * time.Second)
 
-	if response != "session started" {
-		return "", fmt.Errorf("error signaling match: %s", response)
+	if response != "" {
+		return "", fmt.Errorf("match signal returned error: %s", response)
 	}
 
 	return matchID, nil

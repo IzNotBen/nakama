@@ -563,6 +563,42 @@ func terminateMatchRpc(ctx context.Context, logger runtime.Logger, db *sql.DB, n
 		}
 	}
 
+	matchIDs := request.MatchIds
+
+	switch {
+	case request.Query != "":
+		matches, err := nk.MatchList(ctx, 1000, true, "", nil, nil, request.Query)
+		if err != nil {
+			return "", err
+		}
+		for _, match := range matches {
+			matchIDs = append(matchIDs, match.MatchId)
+		}
+	case request.Mode != "":
+		modeMap := map[string]string{
+			"social_2.0": "+label.mode:social_2.0",
+			"social":     "+label.mode:social_2.0",
+			"echo_arena": "+label.mode:echo_arena",
+			"arena":      "+label.mode:echo_arena",
+			"all":        "",
+		}
+
+		query, ok := modeMap[request.Mode]
+		if !ok {
+			return "", fmt.Errorf("invalid mode: %s", request.Mode)
+		}
+		minSize := 2
+		// Get all matches
+		matches, err := nk.MatchList(ctx, 1000, true, "", &minSize, nil, query)
+		if err != nil {
+			return "", err
+		}
+
+		for _, match := range matches {
+			matchIDs = append(matchIDs, match.MatchId)
+		}
+	}
+
 	signal := EvrSignal{
 		Signal: SignalTerminate,
 	}
@@ -735,38 +771,35 @@ func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk 
 	}
 	matchToken := request.MatchToken
 
-	response := PrepareMatchRPCResponse{
-		MatchToken:    matchToken,
-		SignalPayload: request.SignalPayload,
+	response := PrepareMatchRPCResponse{}
+
+	state := EvrMatchState{
+		Mode:      request.Mode,
+		Level:     request.Level,
+		MaxSize:   MatchMaxSize,
+		SpawnedBy: userID,
 	}
 
-	signalPayload := request.SignalPayload
-	if signalPayload == "" {
-		state := &EvrMatchState{}
+	// Set the match state
+	switch request.Mode {
+	case evr.ModeArenaPrivate, evr.ModeCombatPrivate:
+		state.LobbyType = PrivateLobby
+		state.TeamSize = 5
+	case evr.ModeArenaPublic, evr.ModeCombatPublic:
+		state.LobbyType = PublicLobby
+		state.TeamSize = 4
+	default:
+		return "", fmt.Errorf("invalid mode: %v", request.Mode)
+	}
 
-		state.LobbyType = request.LobbyType
-		state.Mode = request.Mode.Symbol()
-		state.TeamSize = request.TeamSize
-		state.Level = request.Level.Symbol()
-		state.SessionSettings = &request.SessionSettings
-		state.SpawnedBy = userID
-		state.MaxSize = MatchMaxSize
+	// Set the session settings
 
-		// Prepare the session for the match.
-		data, err := json.MarshalIndent(state, "", "  ")
-		if err != nil {
-			return "", err
-		}
-
-		signal := EvrSignal{
-			Signal: SignalPrepareSession,
-			Data:   data,
-		}
-		data, err = json.MarshalIndent(signal, "", "  ")
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal match signal: %v", err)
-		}
-		signalPayload = string(data)
+	signal := SignalPrepareSession{
+		State: state,
+	}
+	signalPayload, err := json.Marshal(signal)
+	if err != nil {
+		return "", err
 	}
 
 	errResponse := func(err error) (string, error) {
@@ -776,9 +809,8 @@ func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk 
 		return string(data), err
 	}
 
-	response.SignalPayload = signalPayload
 	// Send the signal
-	signalResponse, err := nk.MatchSignal(ctx, matchToken.String(), signalPayload)
+	signalResponse, err := nk.MatchSignal(ctx, matchToken.String(), string(signalPayload))
 	if err != nil {
 		return errResponse(err)
 	}
@@ -794,14 +826,14 @@ func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk 
 		return errResponse(fmt.Errorf("match label is nil"))
 	}
 
-	state := EvrMatchState{}
+	state = EvrMatchState{}
 	if err := json.Unmarshal([]byte(match.Label.GetValue()), &state); err != nil {
 		return errResponse(err)
 	}
 
 	response.MatchLabel = state
-
 	response.Success = true
+
 	data, _ := json.MarshalIndent(response, "", "  ")
 	return string(data), nil
 }

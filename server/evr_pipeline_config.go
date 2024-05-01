@@ -48,7 +48,6 @@ func (p *EvrPipeline) configRequest(ctx context.Context, logger *zap.Logger, ses
 
 	// Send an error if the object could not be retrieved.
 	if err != nil {
-		logger.Warn("SNSConfigRequestHandler: failed to read objects", zap.Error(err))
 		errorInfo := evr.ConfigErrorInfo{
 			Type:       message.ConfigInfo.Type,
 			Identifier: message.ConfigInfo.Id,
@@ -68,7 +67,6 @@ func (p *EvrPipeline) configRequest(ctx context.Context, logger *zap.Logger, ses
 		jsonResource = evr.GetDefaultConfigResource(message.ConfigInfo.Type, message.ConfigInfo.Id)
 	}
 	if jsonResource == "" {
-		logger.Warn("SNSConfigRequestHandler: resource not found")
 		errorInfo := evr.ConfigErrorInfo{
 			Type:       message.ConfigInfo.Type,
 			Identifier: message.ConfigInfo.Id,
