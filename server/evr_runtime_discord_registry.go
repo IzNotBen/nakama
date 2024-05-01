@@ -179,14 +179,14 @@ func (r *LocalDiscordRegistry) Get(discordId string) (nakamaId string, ok bool) 
 }
 
 // Store adds or updates the Nakama group ID by the Discord guild or role ID
-func (r *LocalDiscordRegistry) Store(discordId string, nakamaId string) {
-	if discordId == "" || nakamaId == "" {
+func (r *LocalDiscordRegistry) Store(discordID string, nakamaID string) {
+	if discordID == "" || nakamaID == "" {
 		r.logger.Error("discordId and nakamaId cannot be nil")
 	}
-	if discordId == "00000000-0000-0000-0000-000000000000" || nakamaId == "00000000-0000-0000-0000-000000000000" {
+	if discordID == "0" || nakamaID == "00000000-0000-0000-0000-000000000000" {
 		r.logger.Error("discordId and nakamaId cannot be nil")
 	}
-	r.cache.Store(discordId, nakamaId)
+	r.cache.Store(discordID, nakamaID)
 }
 
 // Delete removes the Nakama group ID by the Discord guild or role ID
