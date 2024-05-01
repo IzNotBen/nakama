@@ -53,3 +53,23 @@ func TestPacketEncoderSettingsFromFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestPacketEncoderSettingsToFlags(t *testing.T) {
+	tests := []struct {
+		settings *PacketEncoderSettings
+		flags    uint64
+	}{
+		{&PacketEncoderSettings{EncryptionEnabled: false, MacEnabled: false, MacDigestSize: 0, MacPBKDF2IterationCount: 0, MacKeySize: 0, EncryptionKeySize: 0, RandomKeySize: 0}, 0},
+		{&PacketEncoderSettings{EncryptionEnabled: true, MacEnabled: false, MacDigestSize: 0, MacPBKDF2IterationCount: 0, MacKeySize: 0, EncryptionKeySize: 0, RandomKeySize: 0}, 1},
+		{&PacketEncoderSettings{EncryptionEnabled: false, MacEnabled: true, MacDigestSize: 0, MacPBKDF2IterationCount: 0, MacKeySize: 0, EncryptionKeySize: 0, RandomKeySize: 0}, 2},
+		{&PacketEncoderSettings{EncryptionEnabled: true, MacEnabled: true, MacDigestSize: 0, MacPBKDF2IterationCount: 0, MacKeySize: 0, EncryptionKeySize: 0, RandomKeySize: 0}, 3},
+		{&PacketEncoderSettings{EncryptionEnabled: true, MacEnabled: true, MacDigestSize: 0x40, MacPBKDF2IterationCount: 0x00, MacKeySize: 0x20, EncryptionKeySize: 0x20, RandomKeySize: 0x20}, 36037595259470083},
+		{&PacketEncoderSettings{EncryptionEnabled: true, MacEnabled: true, MacDigestSize: 0x20, MacPBKDF2IterationCount: 0x00, MacKeySize: 0x20, EncryptionKeySize: 0x20, RandomKeySize: 0x20}, 36037595259469955},
+	}
+
+	for _, tt := range tests {
+		if tt.settings.ToFlags() != tt.flags {
+			t.Errorf("ToFlags() = %v, want %v", tt.settings.ToFlags(), tt.flags)
+		}
+	}
+}

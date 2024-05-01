@@ -152,7 +152,7 @@ func TestLobbyJoinSessionRequest_ModerateUser(t *testing.T) {
 	}
 
 	want := LobbyJoinSessionRequest{
-		MatchID:        uuid.FromStringOrNil("00000000-0000-0000-0000-000000000000"),
+		MatchID:        uuid.Nil,
 		VersionLock:    -4166109104957845235,
 		Platform:       ToSymbol("OVR"),
 		LoginSessionID: uuid.Must(uuid.FromString("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b")),
