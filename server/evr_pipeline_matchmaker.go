@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -373,7 +372,33 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 		}
 		logger.Debug("Attempting to backfill match", zap.String("mid", foundMatch.MatchID))
 		p.metrics.CustomCounter("match_backfill_found_count", msession.metricsTags(), 1)
-		msession.MatchJoinCh <- foundMatch
+
+		if msession.Party != nil && !msession.Party.ID.IsNil() {
+			// Send all the members of the party to the match
+			msession.Party.Lock()
+			for _, presence := range msession.Party.members.presences {
+				if presence == nil {
+					continue
+				}
+
+				if ms, found := p.matchmakingRegistry.GetMatchingBySessionId(uuid.FromStringOrNil(presence.Presence.GetSessionId())); found {
+					select {
+					case <-ms.Ctx.Done():
+						continue
+					default:
+					}
+
+					// Send the match to the session
+					ms.Lock()
+					ms.MatchJoinCh <- foundMatch
+					ms.Unlock()
+				}
+			}
+
+			msession.Party.Unlock()
+		} else {
+			msession.MatchJoinCh <- foundMatch
+		}
 
 		select {
 		case <-ctx.Done():
@@ -467,25 +492,15 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 	p.metrics.CustomCounter("match_find_active_count", msession.metricsTags(), 1)
 	// Load the user's matchmaking config
 
-	config, err := p.matchmakingRegistry.LoadMatchmakingSettings(msession.Ctx, session.logger, session.userID.String())
-	if err != nil {
-		logger.Error("Failed to load matchmaking config", zap.Error(err))
-	}
-
-	matchToken := ""
-	// Check for a direct match first
-	if config.NextMatchToken != "" {
-		matchToken = config.NextMatchToken.String()
-	}
-
-	config.NextMatchToken = ""
-	err = p.matchmakingRegistry.StoreMatchmakingSettings(msession.Ctx, session.logger, config, session.userID.String())
-	if err != nil {
-		logger.Error("Failed to save matchmaking config", zap.Error(err))
-	}
+	matchToken := msession.UserSettings.NextMatchToken.String()
 
 	if matchToken != "" {
 		logger.Debug("Attempting to join match from settings", zap.String("mid", matchToken))
+		msession.UserSettings.NextMatchToken = ""
+		err = p.matchmakingRegistry.StoreMatchmakingSettings(msession.Ctx, session.logger, msession.UserSettings, session.userID.String())
+		if err != nil {
+			logger.Error("Failed to save matchmaking config", zap.Error(err))
+		}
 		match, _, err := p.matchRegistry.GetMatch(msession.Ctx, matchToken)
 		if err != nil {
 			logger.Error("Failed to get match", zap.Error(err))

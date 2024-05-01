@@ -672,13 +672,13 @@ func (m *EvrMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 }
 
 func (m *EvrMatch) sendPlayerStart(ctx context.Context, logger runtime.Logger, dispatcher runtime.MatchDispatcher, state *EvrMatchState, p *EvrMatchPresence) error {
-
+	disableEncryption := p.SessionFlags.DisableEncryption
 	gameMode := state.Mode
 	teamIndex := int16(p.TeamIndex)
 	channel := state.Channel
-	matchSession := uuid.UUID(state.MatchID)
+	matchID := uuid.UUID(state.MatchID)
 	endpoint := state.Broadcaster.Endpoint
-	success := evr.NewLobbySessionSuccess(gameMode, matchSession, *channel, endpoint, teamIndex)
+	success := evr.NewLobbySessionSuccess(gameMode, matchID, *channel, endpoint, teamIndex, disableEncryption)
 	successV4 := success.Version4()
 	successV5 := success.Version5()
 	messages := []evr.Message{

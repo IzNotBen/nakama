@@ -119,13 +119,18 @@ func (p *EvrPipeline) ListUnfilledLobbies(ctx context.Context, logger *zap.Logge
 
 	var labels []*EvrMatchState
 
+	partySize := 1
+	if msession.Party != nil {
+		partySize = msession.Party.members.Size()
+	}
+
 	if msession.Label.LobbyType != PublicLobby {
 		// Do not backfill for private lobbies
 		return nil, "", status.Errorf(codes.InvalidArgument, "Cannot backfill private lobbies")
 	}
 
 	// Search for existing matches
-	if labels, query, err = p.MatchSearch(ctx, logger, session, msession.Label); err != nil {
+	if labels, query, err = p.MatchSearch(ctx, logger, session, msession.Label, partySize); err != nil {
 		return nil, query, status.Errorf(codes.Internal, "Failed to search for matches: %v", err)
 	}
 
@@ -262,36 +267,28 @@ func (p *EvrPipeline) MatchMake(session *sessionWS, msession *MatchmakingSession
 			SessionID: sessionID,
 		},
 	}
-	// Load the global matchmaking config
-	gconfig, err := p.matchmakingRegistry.LoadMatchmakingSettings(ctx, session.logger, SystemUserID)
-	if err != nil {
-		return "", status.Errorf(codes.Internal, "Failed to load global matchmaking config: %v", err)
-	}
-
-	// Load the user's matchmaking config
-	config, err := p.matchmakingRegistry.LoadMatchmakingSettings(ctx, session.logger, userID)
-	if err != nil {
-		return "", status.Errorf(codes.Internal, "Failed to load matchmaking config: %v", err)
-	}
+	userSettings := msession.UserSettings
+	globalSettings := msession.GlobalSettings
 	// Merge the user's config with the global config
-	query = fmt.Sprintf("%s %s %s", query, gconfig.BackfillQueryAddon, config.BackfillQueryAddon)
+	query = fmt.Sprintf("%s %s %s", query, globalSettings.BackfillQueryAddon, userSettings.BackfillQueryAddon)
 
 	partyID := uuid.Nil
 
-	if config.GroupID != "" {
+	if userSettings.GroupID != "" {
 		partyRegistry := session.pipeline.partyRegistry
-		ph, err := p.joinPartyGroup(logger, partyRegistry, userID, sessionID.String(), session.Username(), p.node, config.GroupID)
+		groupID := userSettings.GroupID
+		ph, err := p.joinPartyGroup(logger, partyRegistry, userID, sessionID.String(), session.Username(), p.node, groupID)
 		if err != nil {
-			logger.Warn("Failed to join party group", zap.String("group_id", config.GroupID), zap.Error(err))
+			logger.Warn("Failed to join party group", zap.String("group_id", groupID), zap.Error(err))
 		} else {
 			logger.Debug("Joined party", zap.String("party_id", partyID.String()), zap.Any("members", ph.members.List()))
 		}
 		partyID = ph.ID
 		msession.Party = ph
 		// Add the user's group to the string properties
-		stringProps["party_group"] = config.GroupID
+		stringProps["party_group"] = groupID
 		// Add the user's group to the query string
-		query = fmt.Sprintf("%s properties.party_group:%s^5", query, config.GroupID)
+		query = fmt.Sprintf("%s properties.party_group:%s^5", query, groupID)
 	}
 	// Get the EVR ID from the context
 	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
@@ -312,7 +309,9 @@ func (p *EvrPipeline) MatchMake(session *sessionWS, msession *MatchmakingSession
 	if partyID != uuid.Nil {
 		pID = partyID.String()
 	}
+
 	subcontext := uuid.NewV5(uuid.Nil, "matchmaking")
+
 	// Create a status presence for the user
 	ok = session.tracker.TrackMulti(ctx, session.id, []*TrackerOp{
 		// EVR packet data stream for the login session by user ID, and service ID, with EVR ID
@@ -445,7 +444,7 @@ func buildMatchQueryFromLabel(ml *EvrMatchState) string {
 }
 
 // MatchSearch attempts to find/create a match for the user.
-func (p *EvrPipeline) MatchSearch(ctx context.Context, logger *zap.Logger, session *sessionWS, ml *EvrMatchState) ([]*EvrMatchState, string, error) {
+func (p *EvrPipeline) MatchSearch(ctx context.Context, logger *zap.Logger, session *sessionWS, ml *EvrMatchState, partySize int) ([]*EvrMatchState, string, error) {
 
 	// TODO Move this into the matchmaking registry
 	query := buildMatchQueryFromLabel(ml)
@@ -453,15 +452,14 @@ func (p *EvrPipeline) MatchSearch(ctx context.Context, logger *zap.Logger, sessi
 	// Basic search defaults
 	const (
 		minSize = 1
-		maxSize = MatchMaxSize - 1 // the broadcaster is included, so this has one free spot
 		limit   = 50
 	)
-
+	maxSize := MatchMaxSize - partySize // the broadcaster is included, so this has free spots
 	logger = logger.With(zap.String("query", query), zap.Any("label", ml))
 
 	// Search for possible matches
 	logger.Debug("Searching for matches")
-	matches, err := listMatches(ctx, p, limit, minSize, maxSize, query)
+	matches, err := listMatches(ctx, p, limit, minSize, maxSize-1, query) // -1 for the broadcaster
 	if err != nil {
 		return nil, "", status.Errorf(codes.Internal, "Failed to find matches: %v", err)
 	}

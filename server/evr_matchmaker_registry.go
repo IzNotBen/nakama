@@ -151,18 +151,20 @@ type TicketMeta struct {
 // MatchmakingSession represents a user session looking for a match.
 type MatchmakingSession struct {
 	sync.RWMutex
-	Ctx           context.Context
-	CtxCancelFn   context.CancelCauseFunc
-	Logger        *zap.Logger
-	UserId        uuid.UUID
-	MatchJoinCh   chan FoundMatch               // Channel for MatchId to join.
-	PingResultsCh chan []evr.EndpointPingResult // Channel for ping completion.
-	Expiry        time.Time
-	Label         *EvrMatchState
-	Tickets       map[string]TicketMeta // map[ticketId]TicketMeta
-	Party         *PartyHandler
-	LatencyCache  *LatencyCache
-	Session       *sessionWS
+	Ctx            context.Context
+	CtxCancelFn    context.CancelCauseFunc
+	Logger         *zap.Logger
+	UserId         uuid.UUID
+	MatchJoinCh    chan FoundMatch               // Channel for MatchId to join.
+	PingResultsCh  chan []evr.EndpointPingResult // Channel for ping completion.
+	Expiry         time.Time
+	Label          *EvrMatchState
+	Tickets        map[string]TicketMeta // map[ticketId]TicketMeta
+	Party          *PartyHandler
+	LatencyCache   *LatencyCache
+	GlobalSettings MatchmakingSettings
+	UserSettings   MatchmakingSettings
+	Session        *sessionWS
 }
 
 func (s *MatchmakingSession) metricsTags() map[string]string {
@@ -1120,6 +1122,15 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 		// Cancel it
 		c.Cancel(session.ID(), ErrMatchmakingCanceledByPlayer)
 	}
+	userSettings, err := c.LoadMatchmakingSettings(ctx, logger, session.UserID().String())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to load matchmaking settings: %v", err)
+	}
+
+	globalSettings, err := c.LoadMatchmakingSettings(ctx, logger, SystemUserID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to load matchmaking settings: %v", err)
+	}
 
 	// Set defaults for the matching label
 	ml.Open = true // Open for joining
@@ -1151,14 +1162,16 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 		Ctx:         ctx,
 		CtxCancelFn: cancel,
 
-		Logger:        logger,
-		UserId:        session.UserID(),
-		MatchJoinCh:   make(chan FoundMatch, 5),
-		PingResultsCh: make(chan []evr.EndpointPingResult),
-		Expiry:        time.Now().UTC().Add(findAttemptsExpiry),
-		Label:         ml,
-		Tickets:       make(map[string]TicketMeta),
-		Session:       session,
+		Logger:         logger,
+		UserId:         session.UserID(),
+		MatchJoinCh:    make(chan FoundMatch, 5),
+		PingResultsCh:  make(chan []evr.EndpointPingResult),
+		Expiry:         time.Now().UTC().Add(findAttemptsExpiry),
+		Label:          ml,
+		Tickets:        make(map[string]TicketMeta),
+		UserSettings:   userSettings,
+		GlobalSettings: globalSettings,
+		Session:        session,
 	}
 
 	// Load the latency cache
