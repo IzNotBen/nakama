@@ -232,11 +232,13 @@ type MatchmakingResult struct {
 	Mode    evr.Symbol
 	Channel uuid.UUID
 	Logger  *zap.Logger
+	Session *sessionWS
 }
 
 // NewMatchmakingResult initializes a new instance of MatchmakingResult
-func NewMatchmakingResult(logger *zap.Logger, mode evr.Symbol, channel uuid.UUID) *MatchmakingResult {
+func NewMatchmakingResult(session *sessionWS, logger *zap.Logger, mode evr.Symbol, channel uuid.UUID) *MatchmakingResult {
 	return &MatchmakingResult{
+		Session: session,
 		Logger:  logger,
 		Mode:    mode,
 		Channel: channel,
@@ -284,7 +286,7 @@ func determineErrorCode(code codes.Code) evr.LobbySessionFailureErrorCode {
 }
 
 // SendErrorToSession sends an error message to a session
-func (mr *MatchmakingResult) SendErrorToSession(s *sessionWS, err error) error {
+func (mr *MatchmakingResult) SendErrorToSession(err error) error {
 	result := mr.SetErrorFromStatus(err)
 	if result == nil {
 		return nil
@@ -295,7 +297,7 @@ func (mr *MatchmakingResult) SendErrorToSession(s *sessionWS, err error) error {
 	}
 
 	mr.Logger.Warn("Matchmaking error", zap.String("message", result.Message), zap.Error(result.err))
-	return s.SendEvr(evr.NewLobbySessionFailure(result.Mode, result.Channel, result.Code, result.Message).Version4())
+	return mr.Session.SendEvr(evr.NewLobbySessionFailure(result.Mode, result.Channel, result.Code, result.Message).Version4())
 }
 
 // MatchmakingRegistry is a registry for matchmaking sessions
