@@ -170,16 +170,26 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		}
 	}
 
-	flags := 0
-	if loginProfile.GetHeadsetType() == "No VR" {
-		flags |= FlagNoVR
+	flags, ok := ctx.Value(ctxFlagsKey{}).(SessionFlags)
+	if !ok {
+		flags = SessionFlags{}
+	}
+	flags.IsNoVR = loginProfile.GetHeadsetType() == "No VR"
+
+	groupFlags := map[string]*bool{
+		GroupGlobalDevelopers: &flags.IsDeveloper,
+		GroupGlobalModerators: &flags.IsModerator,
+		GroupGlobalBots:       &flags.IsBroadcaster,
+		GroupGlobalTesters:    &flags.IsTester,
 	}
 
-	for name, flag := range groupFlagMap {
+	uid := uuid.FromStringOrNil(userId)
+
+	for name, flag := range groupFlags {
 		if ok, err := checkGroupMembershipByName(ctx, p.runtimeModule, uid, name, userId); err != nil {
 			return settings, fmt.Errorf("failed to check group membership: %w", err)
 		} else if ok {
-			flags |= flag
+			*flag = true
 		}
 	}
 
@@ -202,13 +212,31 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		groupID = memberships[0].GuildGroup.ID()
 	}
 
+	// Get the GroupID from the user's metadata
+	groupID := metadata.GetActiveGroupID()
+	// Validate that the user is in the group
+	if groupID == uuid.Nil {
+		// Get a list of the user's guild groups and set to the largest one
+		groups, err := p.discordRegistry.GetGuildGroups(ctx, uid)
+		if err != nil {
+			return settings, fmt.Errorf("failed to get guild groups: %w", err)
+		}
+		if len(groups) == 0 {
+			return settings, fmt.Errorf("user is not in any guild groups")
+		}
+		// Sort the groups by the edgecount
+		sort.SliceStable(groups, func(i, j int) bool {
+			return groups[i].EdgeCount > groups[j].EdgeCount
+		})
+		groupID = uuid.FromStringOrNil(groups[0].GetId())
+	}
+
 	version := strconv.FormatUint(loginProfile.GetLobbyVersion(), 16)
 
 	// Initialize the full session
 	if err := session.LoginSession(userId, user.GetUsername(), evrId, deviceId, groupID, flags, version); err != nil {
 		return settings, fmt.Errorf("failed to login: %w", err)
 	}
-	ctx = session.Context()
 
 	go func() {
 		p.loginSessionByEvrID.Store(evrId.Token(), session)
@@ -507,7 +535,6 @@ func (p *EvrPipeline) remoteLogSetv3(ctx context.Context, logger *zap.Logger, se
 	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
 	if !ok {
 		logger.Debug("evrId not found in context")
-
 	}
 
 	for _, l := range request.Logs {
@@ -738,6 +765,7 @@ func (p *EvrPipeline) StorageLoadOrStore(ctx context.Context, logger *zap.Logger
 			UserId:     userID.String(),
 		},
 	})
+
 	if err != nil {
 		return ts, fmt.Errorf("SNSDocumentRequest: failed to read objects: %w", err)
 	}

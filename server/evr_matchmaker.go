@@ -716,8 +716,8 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 
 	// If this is a NoVR user, give the profile's displayName a bot suffix
 	// Get the NoVR key from context
-	if flags, ok := ctx.Value(ctxFlagsKey{}).(int); ok {
-		if flags&FlagNoVR != 0 {
+	if flags, ok := ctx.Value(ctxFlagsKey{}).(SessionFlags); ok {
+		if flags.IsNoVR {
 			displayName = fmt.Sprintf("%s [BOT]", displayName)
 		}
 	}
@@ -912,7 +912,7 @@ func (p *EvrPipeline) checkSuspensionStatus(ctx context.Context, logger *zap.Log
 	// Get the guild member
 	member, err := p.discordRegistry.GetGuildMember(ctx, md.GuildID, discordId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Failed to get guild member: %v", err)
+		return nil, status.Errorf(codes.NotFound, "Failed to get guild member: %v", err)
 	}
 
 	if member == nil {
@@ -923,7 +923,7 @@ func (p *EvrPipeline) checkSuspensionStatus(ctx context.Context, logger *zap.Log
 		return nil, nil
 	}
 
-	// TODO FIXME This needs to be refactored. extract method.
+	// TODO This needs to be refactored. extract method.
 	// Check if the user has a detailed suspension status in storage
 	keys := make([]string, 0, 2)
 	// List all the storage objects in the SuspensionStatusCollection for this user

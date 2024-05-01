@@ -37,14 +37,6 @@ const (
 	FlagNoVR
 )
 
-var groupFlagMap = map[string]int{
-	GroupGlobalDevelopers:  FlagGlobalDevelopers,
-	GroupGlobalModerators:  FlagGlobalModerators,
-	GroupGlobalTesters:     FlagGlobalTesters,
-	GroupGlobalBots:        FlagGlobalBots,
-	GroupGlobalBadgeAdmins: FlagGlobalBadgeAdmins,
-}
-
 func InitializeEvrRuntimeModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, initializer runtime.Initializer) (err error) {
 
 	// Register RPC's for device linking

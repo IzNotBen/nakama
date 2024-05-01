@@ -115,6 +115,16 @@ type (
 	//ctxMatchmakingGuildPriorityKey struct{} // The Matchmaking guild priority from the urlparam
 )
 
+type SessionFlags struct {
+	IsBroadcaster     bool
+	IsModerator       bool
+	IsDeveloper       bool
+	IsTester          bool
+	IsNoVR            bool
+	DisableEncryption bool
+	SingleSession     bool
+}
+
 func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessionID, userID uuid.UUID, username string, vars map[string]string, expiry int64, clientIP, clientPort, lang string, protojsonMarshaler *protojson.MarshalOptions, protojsonUnmarshaler *protojson.UnmarshalOptions, conn *websocket.Conn, sessionRegistry SessionRegistry, statusRegistry StatusRegistry, matchmaker Matchmaker, tracker Tracker, metrics Metrics, pipeline *Pipeline, evrPipeline *EvrPipeline, runtime *Runtime, request http.Request, storageIndex StorageIndex) Session {
 	sessionLogger := logger.With(zap.String("sid", sessionID.String()))
 
@@ -251,7 +261,7 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 	}
 }
 
-func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId, deviceId *DeviceId, groupID uuid.UUID, flags int, version string) error {
+func (s *sessionWS) LoginSession(ctx context.Context, userID string, username string, evrID evr.EvrId, deviceId *DeviceId, groupID uuid.UUID, flags SessionFlags, version string) error {
 	// Each player has a single login connection, which will act as the core session.
 	// When this connection is terminated, all other connections should be terminated.
 
@@ -266,7 +276,7 @@ func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId
 
 	// Replace the session context with a derived one that includes the login session ID and the EVR ID
 
-	ctx := context.WithValue(s.Context(), ctxLoginSessionKey{}, s)
+	ctx = context.WithValue(ctx, ctxLoginSessionKey{}, s)
 	ctx = context.WithValue(ctx, ctxEvrIDKey{}, evrID)
 	ctx = context.WithValue(ctx, ctxUserIDKey{}, uuid.FromStringOrNil(userID)) // apiServer compatibility
 	ctx = context.WithValue(ctx, ctxUsernameKey{}, username)                   // apiServer compatibility
@@ -406,7 +416,7 @@ func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrId) e
 			return fmt.Errorf("login session does not have a username")
 		}
 
-		flags, ok := loginCtx.Value(ctxFlagsKey{}).(int)
+		flags, ok := loginCtx.Value(ctxFlagsKey{}).(SessionFlags)
 		if !ok {
 			return fmt.Errorf("login session does not have system group flags")
 		}
@@ -424,6 +434,7 @@ func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrId) e
 		// Create a derived context for this session.
 		ctx := context.WithValue(s.Context(), ctxLoginSessionKey{}, loginSession)
 		ctx = context.WithValue(ctx, ctxEvrIDKey{}, evrID)
+		ctx = context.WithValue(ctx, ctxFlagsKey{}, flags)
 		ctx = context.WithValue(ctx, ctxUserIDKey{}, userID)     // apiServer compatibility
 		ctx = context.WithValue(ctx, ctxUsernameKey{}, username) // apiServer compatibility
 		ctx = context.WithValue(ctx, ctxFlagsKey{}, flags)

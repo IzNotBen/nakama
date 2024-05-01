@@ -32,6 +32,15 @@ func (p *EvrPipeline) lobbyMatchmakerStatusRequest(ctx context.Context, logger *
 	return nil
 }
 
+type AuthorizationFailure struct {
+	Reason string
+	err    error
+}
+
+func (a AuthorizationFailure) Error() string {
+	return a.Reason
+}
+
 // authorizeMatchmaking checks if the user is allowed to join a public match or spawn a new match
 func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logger, session *sessionWS, loginSessionID uuid.UUID, groupID uuid.UUID, requireMembership bool) error {
 
@@ -52,27 +61,50 @@ func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logg
 		return status.Errorf(codes.InvalidArgument, "Invalid EVR ID")
 	}
 
-	// Send a match leave if this user is in another match
 	if session.userID == uuid.Nil {
 		return status.Errorf(codes.Unauthenticated, "User not authenticated")
+		return status.Error(codes.Unauthenticated, "User not authenticated")
 	}
 
 	// Only bots may join multiple matches
-	singleMatch := true
-	if flags, ok := ctx.Value(ctxFlagsKey{}).(int); ok {
-		if flags&FlagGlobalBots != 0 || flags&FlagGlobalDevelopers != 0 {
-			singleMatch = false
+	if flags, ok := ctx.Value(ctxFlagsKey{}).(SessionFlags); ok {
+		if flags.SingleSession && !flags.IsDeveloper {
+			EnforceSingleMatch(logger, session, evrID)
 		}
 	}
 
-	if singleMatch {
-		// Disconnect this EVRID from other matches
-		sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: evrID.UUID(), Subcontext: svcMatchID})
-		for _, foundSessionID := range sessionIDs {
-			if foundSessionID == session.id {
-				// Allow the current session, only disconnect any older ones.
-				continue
-			}
+	if err := session.MatchSession(); err != nil {
+		return errors.New("failed to get match session")
+	}
+
+	if channel == uuid.Nil {
+		logger.Warn("Channel is nil")
+		return nil
+	}
+
+	// Check for suspensions on this channel.
+	suspensions, err := p.checkSuspensionStatus(ctx, logger, session.UserID().String(), channel)
+
+	if err != nil {
+		return err
+	}
+
+	if len(suspensions) != 0 {
+		msg := suspensions[0].Reason
+		return errors.New("Suspended: " + msg)
+	}
+
+	return nil
+}
+
+func EnforceSingleMatch(logger *zap.Logger, session *sessionWS, evrID evr.EvrId) {
+	// Disconnect this EVRID from other matches
+	sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: evrID.UUID(), Subcontext: svcMatchID})
+	for _, foundSessionID := range sessionIDs {
+		if foundSessionID == session.id {
+			// Allow the current session, only disconnect any older ones.
+			continue
+		}
 
 			// Disconnect the older session.
 			logger.Debug("Disconnecting older session from matchmaking", zap.String("other_sid", foundSessionID.String()))
@@ -144,6 +176,15 @@ func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logg
 	suspensions, err := p.checkSuspensionStatus(ctx, logger, session.UserID().String(), groupID)
 	if err != nil {
 		return status.Errorf(codes.Internal, "Failed to check suspension status: %v", err)
+		// Disconnect the older session.
+		logger.Debug("Disconnecting older session from matchmaking", zap.String("other_sid", foundSessionID.String()))
+		foundSession := session.sessionRegistry.Get(foundSessionID)
+		if foundSession == nil {
+			logger.Warn("Failed to find older session to disconnect", zap.String("other_sid", foundSessionID.String()))
+			continue
+		}
+		// Send an error
+		foundSession.Close("New session started", runtime.PresenceReasonDisconnect)
 	}
 	if len(suspensions) != 0 {
 		msg := suspensions[0].Reason
@@ -152,6 +193,8 @@ func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logg
 	}
 	return nil
 }
+
+
 
 func (p *EvrPipeline) matchmakingLabelFromFindRequest(ctx context.Context, session *sessionWS, request *evr.LobbyFindSessionRequest) (*EvrMatchState, error) {
 
@@ -809,18 +852,47 @@ func (p *EvrPipeline) lobbyCreateSessionRequest(ctx context.Context, logger *zap
 		evr.ModeCombatPrivate:        {evr.LevelCombustion, evr.LevelDyson, evr.LevelFission, evr.LevelGauss},
 		evr.ModeEchoCombatTournament: {evr.LevelCombustion, evr.LevelDyson, evr.LevelFission, evr.LevelGauss},
 	}
-	isDeveloper, err := checkIfGlobalDeveloper(ctx, p.runtimeModule, session.userID)
-	logger.Info("User is developer", zap.Bool("isDeveloper", isDeveloper))
-	if err != nil {
-		return response.SendErrorToSession(session, status.Errorf(codes.Internal, "Failed to check if user is a developer: %v", err))
+
+	flags, ok := ctx.Value(ctxFlagsKey{}).(SessionFlags)
+	if !ok {
+		flags = SessionFlags{}
 	}
-	if !isDeveloper {
+
+	if !flags.IsDeveloper {
 		if levels, ok := validLevels[request.Mode]; ok {
 			if request.Level != evr.LevelUnspecified && !lo.Contains(levels, request.Level) {
-				return response.SendErrorToSession(session, status.Errorf(codes.InvalidArgument, "Invalid level %v for game mode %v", request.Level, request.Mode))
+				return response.SendErrorToSession(status.Errorf(codes.InvalidArgument, "Invalid level %v for game mode %v", request.Level, request.Mode))
 			}
 		} else {
-			return response.SendErrorToSession(session, status.Errorf(codes.InvalidArgument, "Failed to create matchmaking session: Tried to create a match with an unknown level or gamemode: %v", request.Mode))
+			return response.SendErrorToSession(status.Errorf(codes.InvalidArgument, "Failed to create matchmaking session: Tried to create a match with an unknown level or gamemode: %v", request.Mode))
+		}
+	}
+	regions := make([]evr.Symbol, 0)
+	if request.Region != evr.DefaultRegion {
+		regions = append(regions, request.Region)
+	}
+	regions = append(regions, evr.DefaultRegion)
+
+	// Make the regions unique without resorting it
+	uniqueRegions := make([]evr.Symbol, 0, len(regions))
+	seen := make(map[evr.Symbol]struct{}, len(regions))
+	for _, region := range regions {
+		if _, ok := seen[region]; !ok {
+			uniqueRegions = append(uniqueRegions, region)
+			seen[region] = struct{}{}
+	regions := make([]evr.Symbol, 0)
+	if request.Region != evr.DefaultRegion {
+		regions = append(regions, request.Region)
+	}
+	regions = append(regions, evr.DefaultRegion)
+
+	// Make the regions unique without resorting it
+	uniqueRegions := make([]evr.Symbol, 0, len(regions))
+	seen := make(map[evr.Symbol]struct{}, len(regions))
+	for _, region := range regions {
+		if _, ok := seen[region]; !ok {
+			uniqueRegions = append(uniqueRegions, region)
+			seen[region] = struct{}{}
 		}
 	}
 
