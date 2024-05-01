@@ -742,26 +742,29 @@ func BanUserRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 }
 
 type PrepareMatchRPCRequest struct {
-	MatchToken      MatchToken           `json:"match_token"`      // Parking match to signal
-	LobbyType       LobbyType            `json:"lobby_type"`       // Lobby type to set the match to
-	Mode            evr.SymbolToken      `json:"mode"`             // Mode to set the match to
-	TeamSize        int                  `json:"team_size"`        // Team size to set the match to
-	Level           evr.SymbolToken      `json:"level"`            // Level to set the match to
-	SessionSettings evr.SessionSettings  `json:"session_settings"` // Session settings to set the match to
-	Players         map[string]TeamIndex `json:"team_alignments"`  // Team alignments to set the match to (discord username -> team index))
-	SignalPayload   string               `json:"signal_payload"`   // A signal payload to send to the match unmodified
+	MatchToken    MatchToken           `json:"match_token"`     // Parking match to signal
+	Mode          evr.Symbol           `json:"mode"`            // Mode to set the match to
+	Level         evr.Symbol           `json:"level"`           // Level to set the match to
+	Players       map[string]TeamIndex `json:"team_alignments"` // Team alignments to set the match to (discord username -> team index))
+	SignalPayload string               `json:"signal_payload"`  // A signal payload to send to the match unmodified
 }
 
 type PrepareMatchRPCResponse struct {
-	MatchToken    MatchToken    `json:"match_token"`
-	Signal        EvrSignal     `json:"signal,omitempty"`
-	SignalPayload string        `json:"signal_payload,omitempty"`
-	Success       bool          `json:"success"`
-	Message       string        `json:"message"`
-	MatchLabel    EvrMatchState `json:"match_label"`
+	Success    bool          `json:"success"`
+	Message    string        `json:"message"`
+	MatchLabel EvrMatchState `json:"match_label"`
+}
+
+func (r *PrepareMatchRPCResponse) String() string {
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+	return "NOT IMPLEMENTED", nil
 	// Get the UserID from the context
 	userID := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
 
