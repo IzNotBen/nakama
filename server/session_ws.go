@@ -365,6 +365,40 @@ func (s *sessionWS) BroadcasterSession(userID string, username string) error {
 	return nil
 }
 
+func (s *sessionWS) MatchSession() error {
+	// Get the Login Session ID from the context
+	loginSessionID, ok := s.Context().Value(ctxLoginSessionKey{}).(uuid.UUID)
+	if !ok {
+		return fmt.Errorf("login session ID not found in context")
+	}
+
+	// Get the EvrID from the context
+	evrID, ok := s.Context().Value(ctxEvrIDKey{}).(evr.EvrId)
+	if !ok {
+		return fmt.Errorf("EVR ID not found in context")
+	}
+
+	// Track this session as a matchmaking session.
+	s.tracker.TrackMulti(s.ctx, s.id, []*TrackerOp{
+		{
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.id, Subcontext: svcMatchID},
+			Meta:   PresenceMeta{Format: s.format, Hidden: true},
+		},
+		// By login sessionID and match service ID
+		{
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: loginSessionID, Subcontext: svcMatchID},
+			Meta:   PresenceMeta{Format: s.format, Hidden: true},
+		},
+		// By EVRID and match service ID
+		{
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: evrID.UUID(), Subcontext: svcMatchID},
+			Meta:   PresenceMeta{Format: s.format, Hidden: true},
+		},
+		// EVR packet data stream for the match session by Session ID and service ID
+	}, s.userID)
+	return nil
+}
+
 // ValidateSession validates the session information provided by the client.
 func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrId) error {
 	if loginSessionID == uuid.Nil {
