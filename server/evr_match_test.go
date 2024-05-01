@@ -53,9 +53,9 @@ func TestSelectTeamForPlayer(t *testing.T) {
 		"player5": {TeamIndex: evr.TeamOrange},
 	}
 
-	presences := make(map[uuid.UUID]*EvrMatchPresence)
+	presences := make(map[string]*EvrMatchPresence)
 	for k, v := range presencesstr {
-		u := uuid.NewV5(uuid.Nil, k)
+		u := uuid.NewV5(uuid.Nil, k).String()
 		presences[u] = v
 	}
 
@@ -294,19 +294,31 @@ func TestSelectTeamForPlayer(t *testing.T) {
 			expectedTeam:   evr.TeamModerator,
 			expectedResult: true,
 		},
+		{
+			name:      "Blue team unbalanced, put on orange",
+			lobbyType: PublicLobby,
+			preferred: evr.TeamBlue,
+			presences: map[string]*EvrMatchPresence{
+				"player1": {TeamIndex: evr.TeamBlue},
+				"player2": {TeamIndex: evr.TeamBlue},
+				"player3": {TeamIndex: evr.TeamOrange},
+			},
+			expectedTeam:   evr.TeamOrange,
+			expectedResult: true,
+		},
 	}
 
 	for _, tt := range tests {
 		presence := &EvrMatchPresence{
 			TeamIndex: tt.preferred,
 		}
-		presencestr := make(map[uuid.UUID]*EvrMatchPresence)
+		presences := make(map[string]*EvrMatchPresence)
 		for k, v := range tt.presences {
-			u := uuid.NewV5(uuid.Nil, k)
-			presencestr[u] = v
+			u := uuid.NewV5(uuid.Nil, k).String()
+			presences[u] = v
 		}
 
-		state.presences = presencestr
+		state.presences = presences
 		state.MaxSize = MatchMaxSize
 		state.LobbyType = tt.lobbyType
 		if state.LobbyType == PublicLobby {
@@ -392,9 +404,9 @@ func TestSelectTeamForPlayer_With_Alighment(t *testing.T) {
 
 	for _, tt := range tests {
 		// Existing players
-		presences := make(map[uuid.UUID]*EvrMatchPresence)
+		presences := make(map[string]*EvrMatchPresence)
 		for _, player := range tt.players {
-			u := uuid.NewV5(uuid.Nil, player)
+			u := uuid.NewV5(uuid.Nil, player).String()
 			presences[u] = &EvrMatchPresence{
 				TeamIndex: alignments[player],
 			}
