@@ -124,7 +124,7 @@ type LinkTicket struct {
 
 // TODO Move this to the evrbackend runtime module
 // linkTicket generates a link ticket for the provided xplatformId and hmdSerialNumber.
-func (p *EvrPipeline) linkTicket(session *sessionWS, logger *zap.Logger, deviceId *DeviceId, loginData *evr.LoginProfile) (*LinkTicket, error) {
+func (p *EvrPipeline) linkTicket(session *sessionWS, deviceId DeviceId, loginData *evr.LoginProfile) (*LinkTicket, error) {
 	ctx := session.Context()
 
 	// Check if a link ticket already exists for the provided xplatformId and hmdSerialNumber

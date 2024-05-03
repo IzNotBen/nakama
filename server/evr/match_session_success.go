@@ -28,9 +28,8 @@ type LobbySessionSuccess struct {
 }
 
 // NewLobbySessionSuccessv5 initializes a new LobbySessionSuccessv5 message.
-func NewLobbySessionSuccess(mode Symbol, matchingSession uuid.UUID, channel uuid.UUID, endpoint Endpoint, teamIndex int16, disableEncryption bool) *LobbySessionSuccess {
-	c := DefaultClientEncoderSettings()
-	s := DefaultServerEncoderSettings()
+func NewLobbySessionSuccess(mode Symbol, matchingSession uuid.UUID, channel uuid.UUID, endpoint Endpoint, teamIndex int16, disableSecurity bool) *LobbySessionSuccess {
+	s := DefaultEncoderSettings(disableSecurity)
 	return &LobbySessionSuccess{
 		GameMode:           mode,
 		MatchID:            matchingSession,
@@ -39,15 +38,15 @@ func NewLobbySessionSuccess(mode Symbol, matchingSession uuid.UUID, channel uuid
 		TeamIndex:          teamIndex,
 		Unk1:               0,
 		ServerEncoderFlags: s.ToFlags(),
-		ClientEncoderFlags: c.ToFlags(),
+		ClientEncoderFlags: s.ToFlags(),
 		ServerSequenceID:   binary.LittleEndian.Uint64(GetRandomBytes(0x08)),
 		ServerMacKey:       GetRandomBytes(s.MacKeySize),
 		ServerEncKey:       GetRandomBytes(s.EncryptionKeySize),
 		ServerRandomKey:    GetRandomBytes(s.RandomKeySize),
 		ClientSequenceID:   binary.LittleEndian.Uint64(GetRandomBytes(0x08)),
-		ClientMacKey:       GetRandomBytes(c.MacKeySize),
-		ClientEncKey:       GetRandomBytes(c.EncryptionKeySize),
-		ClientRandomKey:    GetRandomBytes(c.RandomKeySize),
+		ClientMacKey:       GetRandomBytes(s.MacKeySize),
+		ClientEncKey:       GetRandomBytes(s.EncryptionKeySize),
+		ClientRandomKey:    GetRandomBytes(s.RandomKeySize),
 	}
 }
 
@@ -153,21 +152,10 @@ func (m *LobbySessionSuccessv5) Stream(s *EasyStream) error {
 	})
 }
 
-func DefaultClientEncoderSettings() *PacketEncoderSettings {
+func DefaultEncoderSettings(disableSecurity bool) *PacketEncoderSettings {
 	return &PacketEncoderSettings{
-		EncryptionEnabled:       true,
-		MacEnabled:              true,
-		MacDigestSize:           0x40,
-		MacPBKDF2IterationCount: 0x00,
-		MacKeySize:              0x20,
-		EncryptionKeySize:       0x20,
-		RandomKeySize:           0x20,
-	}
-}
-func DefaultServerEncoderSettings() *PacketEncoderSettings {
-	return &PacketEncoderSettings{
-		EncryptionEnabled:       true,
-		MacEnabled:              true,
+		EncryptionEnabled:       !disableSecurity,
+		MacEnabled:              !disableSecurity,
 		MacDigestSize:           0x20,
 		MacPBKDF2IterationCount: 0x00,
 		MacKeySize:              0x20,

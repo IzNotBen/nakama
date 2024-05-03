@@ -22,15 +22,14 @@ import (
 )
 
 const (
-	HMDSerialOverrideUrlParam             = "hmdserial"
-	DisplayNameOverrideUrlParam           = "displayname"
-	UserPasswordUrlParam                  = "password"
-	DiscordIdUrlParam                     = "discordid"
-	EvrIdOverrideUrlParam                 = "evrid"
-	BroadcasterEncryptionDisabledUrlParam = "disable_encryption"
-	BroadcasterHMACDisabledUrlParam       = "disable_hmac"
-	FeaturesURLParam                      = "features"
-	RequiredFeaturesURLParam              = "required_features"
+	HMDSerialOverrideUrlParam   = "hmdserial"
+	DisplayNameOverrideUrlParam = "displayname"
+	UserPasswordUrlParam        = "password"
+	DiscordIdUrlParam           = "discordid"
+	EvrIdOverrideUrlParam       = "evrid"
+	FlagsUrlParam               = "flags"
+	FeaturesURLParam            = "features"
+	RequiredFeaturesURLParam    = "required_features"
 
 	EvrIDStorageIndex            = "EvrIDs_Index"
 	GameClientSettingsStorageKey = "clientSettings"

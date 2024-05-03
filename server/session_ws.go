@@ -116,13 +116,17 @@ type (
 )
 
 type SessionFlags struct {
-	IsBroadcaster     bool
-	IsModerator       bool
-	IsDeveloper       bool
-	IsTester          bool
-	IsNoVR            bool
-	DisableEncryption bool
-	SingleSession     bool
+	IsBroadcaster   bool
+	IsModerator     bool
+	IsDeveloper     bool
+	IsTester        bool
+	IsNoVR          bool
+	DisableSecurity bool
+	SingleSession   bool
+}
+
+var flagMap = map[string]func(*SessionFlags){
+	"noprotosecurity": func(f *SessionFlags) { f.DisableSecurity = true },
 }
 
 func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessionID, userID uuid.UUID, username string, vars map[string]string, expiry int64, clientIP, clientPort, lang string, protojsonMarshaler *protojson.MarshalOptions, protojsonUnmarshaler *protojson.UnmarshalOptions, conn *websocket.Conn, sessionRegistry SessionRegistry, statusRegistry StatusRegistry, matchmaker Matchmaker, tracker Tracker, metrics Metrics, pipeline *Pipeline, evrPipeline *EvrPipeline, runtime *Runtime, request http.Request, storageIndex StorageIndex) Session {
@@ -156,6 +160,17 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 			v = v[:19]
 		}
 		ctx = context.WithValue(ctx, ctxDiscordIdKey{}, v)
+	}
+
+	if v := request.URL.Query().Get(FlagsUrlParam); v != "" {
+		// split by comma
+		flags := strings.Split(v, ",")
+		sessionFlags := &SessionFlags{}
+		for _, flag := range flags {
+			if f, ok := flagMap[flag]; ok {
+				f(sessionFlags)
+			}
+		}
 	}
 
 	// Add the Password to the context if it's present in the request URL

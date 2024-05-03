@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"regexp"
 	"sort"
@@ -672,7 +671,7 @@ func (m *EvrMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 }
 
 func (m *EvrMatch) sendPlayerStart(ctx context.Context, logger runtime.Logger, dispatcher runtime.MatchDispatcher, state *EvrMatchState, p *EvrMatchPresence) error {
-	disableEncryption := p.SessionFlags.DisableEncryption
+	disableEncryption := p.SessionFlags.DisableSecurity
 	gameMode := state.Mode
 	teamIndex := int16(p.TeamIndex)
 	channel := state.Channel
