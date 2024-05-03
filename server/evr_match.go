@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"regexp"
 	"sort"
@@ -646,6 +647,10 @@ func (m *EvrMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 			// TODO FIXME Kick the player from the match.
 			logger.Error("Player not in cache. This shouldn't happen.")
 			return errors.New("player not in cache")
+		}
+		// Update the player's status to include the match ID
+		if err := nk.StreamUserUpdate(StreamModeEvr, p.GetUserId(), svcMatchContext.String(), "", p.GetUserId(), p.GetSessionId(), false, false, state.ID()); err != nil {
+			logger.Warn("Failed to update user status: %v", err)
 		}
 
 		// Update the player's status to include the match ID
