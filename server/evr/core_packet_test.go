@@ -264,3 +264,59 @@ func TestWrapBytes(t *testing.T) {
 		})
 	}
 }
+
+func TestToSymbol(t *testing.T) {
+	tests := []struct {
+		name string
+		v    any
+		want Symbol
+	}{
+		{
+			name: "Symbol",
+			v:    Symbol(0x1234567890abcdef),
+			want: Symbol(0x1234567890abcdef),
+		},
+		{
+			name: "int64",
+			v:    int64(123),
+			want: Symbol(123),
+		},
+		{
+			name: "uint64",
+			v:    uint64(456),
+			want: Symbol(456),
+		},
+		{
+			name: "SymbolToken",
+			v:    SymbolToken("0xabcdef"),
+			want: Symbol(0xabcdef),
+		},
+		{
+			name: "string",
+			v:    "0x1234567890abcdef",
+			want: Symbol(0x1234567890abcdef),
+		},
+		{
+			name: "string",
+			v:    "0x0000000000000001",
+			want: Symbol(0x0000000000000001),
+		},
+		{
+			name: "empty string",
+			v:    "",
+			want: Symbol(0),
+		},
+		{
+			name: "unsupported type",
+			v:    true,
+			want: Symbol(0),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ToSymbol(tt.v); got != tt.want {
+				t.Errorf("ToSymbol() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

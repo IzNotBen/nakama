@@ -160,7 +160,7 @@ func ToSymbol(v any) Symbol {
 			return Symbol(0)
 		}
 		// if it's a hex represenatation, return it's value
-		if len(str) == 18 && str[:2] == "0x" {
+		if str[:2] == "0x" && len(str) > 2 {
 			if s, err := strconv.ParseUint(string(str[2:]), 16, 64); err == nil {
 				return Symbol(s)
 			}
