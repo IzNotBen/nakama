@@ -101,7 +101,7 @@ type Symbol uint64
 // or returns the hex string representation of the token.
 // ToSymbol will detect 0x prefixed hex strings.
 func (s Symbol) Token() SymbolToken {
-	t, ok := SymbolCache[uint64(s)]
+	t, ok := CoreSymbols[uint64(s)]
 	if !ok {
 		// If it's not found, just return the number as a hex string
 		str := strconv.FormatUint(uint64(s), 16)

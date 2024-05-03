@@ -56,7 +56,7 @@ func generateSymbolSeed() [0x100]uint64 {
 
 var symbolSeed [0x100]uint64 = generateSymbolSeed()
 
-var SymbolCache = map[uint64]SymbolToken{
+var CoreSymbols = map[uint64]SymbolToken{
 	0x0000000000000000: "",                                   // Default
 	0x8d5ad3c4f2166c6c: "SNSFindServerRegionInfo",            // Custom?
 	0xb57a31cdd0f6fedf: "SNSLobbyRegistrationSuccess",        // Custom
