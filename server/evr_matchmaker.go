@@ -213,7 +213,7 @@ func (p *EvrPipeline) Backfill(ctx context.Context, session *sessionWS, msession
 
 		go func() {
 			// Delay unlock to prevent join overflows
-			<-time.After(MatchJoinGracePeriod)
+			<-time.After(1 * time.Second)
 			mu.Unlock()
 		}()
 		selected = label
@@ -459,7 +459,7 @@ func (p *EvrPipeline) MatchSearch(ctx context.Context, logger *zap.Logger, sessi
 
 	// Search for possible matches
 	logger.Debug("Searching for matches")
-	matches, err := listMatches(ctx, p, limit, minSize, maxSize-1, query) // -1 for the broadcaster
+	matches, err := listMatches(ctx, p, limit, minSize, maxSize+1, query) // +1 for the broadcaster
 	if err != nil {
 		return nil, "", status.Errorf(codes.Internal, "Failed to find matches: %v", err)
 	}
