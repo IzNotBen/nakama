@@ -11,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gofrs/uuid/v5"
+	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
@@ -182,9 +183,12 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 		linkDeviceURL:    config.GetRuntime().Environment["LINK_DEVICE_URL"],
 	}
 
-	evrPipeline.matchmakingRegistry = NewMatchmakingRegistry(logger, matchRegistry, matchmaker, metrics, db, nk, config, evrPipeline)
-
-	runtime.MatchmakerMatched()
+	go func() {
+		err = clearLinkTickets(ctx, logger, nk)
+		if err != nil {
+			logger.Error("Failed to clear link tickets", zap.Error(err))
+		}
+	}()
 
 	// Create a timer to periodically clear the backfill queue
 	go func() {
@@ -241,6 +245,37 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 	}()
 
 	return evrPipeline
+}
+
+func clearLinkTickets(ctx context.Context, logger *zap.Logger, nk runtime.NakamaModule) error {
+	// Remove existing linktickets
+	cursor := ""
+	ops := make([]*runtime.StorageDelete, 0)
+	objs := make([]*api.StorageObject, 0)
+	var err error
+	for {
+		objs, cursor, err = nk.StorageList(ctx, SystemUserID, SystemUserID, LinkTicketCollection, 2000, "")
+		if err != nil {
+			return err
+		}
+		for _, obj := range objs {
+			ops = append(ops, &runtime.StorageDelete{
+				Collection: LinkTicketCollection,
+				Key:        obj.Key,
+				UserID:     SystemUserID,
+			})
+		}
+		if cursor == "" {
+			break
+		}
+	}
+
+	if len(ops) > 0 {
+		if err := nk.StorageDelete(ctx, ops); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *EvrPipeline) SetApiServer(apiServer *ApiServer) {
@@ -336,17 +371,18 @@ func (p *EvrPipeline) ProcessRequestEvr(logger *zap.Logger, session *sessionWS, 
 		}
 	}
 
-	if idmessage, ok := in.(evr.IdentifyingMessage); ok {
-		// If the message is an identifying message, validate the session and evr id.
-		if err := session.ValidateSession(idmessage.SessionID(), idmessage.EvrID()); err != nil {
-			logger.Error("Invalid session", zap.Error(err))
-			// Disconnect the client if the session is invalid.
-			return false
-		}
-	}
-
 	// If the message requires authentication, check if the session is authenticated.
 	if requireAuthed {
+		// If the message is an identifying message, validate the session and evr id.
+		if idmessage, ok := in.(evr.IdentifyingMessage); ok {
+
+			if err := session.ValidateSession(idmessage.GetSessionID(), idmessage.GetEvrID()); err != nil {
+				logger.Error("Invalid session", zap.Error(err))
+
+				// Disconnect the client if the session is invalid.
+				return false
+			}
+		}
 		// If the session is not authenticated, log the error and return.
 		if session != nil && session.UserID() == uuid.Nil {
 			logger.Error("Session not authenticated")
@@ -451,7 +487,7 @@ func (p *EvrPipeline) relayMatchData(ctx context.Context, logger *zap.Logger, se
 	matchIDStr, found = p.matchBySessionID.Load(session.ID().String())
 	if !found {
 		// Try to load the match ID from the presence stream
-		sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: session.id, Subcontext: svcMatchID})
+		sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: session.id, Subcontext: svcMatchContext})
 		if len(sessionIDs) == 0 {
 			return fmt.Errorf("no matchmaking session for user %s session: %s", session.UserID(), session.ID())
 		}
