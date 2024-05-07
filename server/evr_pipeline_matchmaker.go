@@ -1016,6 +1016,13 @@ func (p *EvrPipeline) lobbyJoinSessionRequest(ctx context.Context, logger *zap.L
 		ml.Channel = &uuid.Nil
 	}
 
+	if lo.Contains(ml.Broadcaster.Tags, "membersonly") {
+		// Check if the user is a member of the guild
+		if !lo.Contains(groupIDs, *ml.Channel) {
+			return response.SendErrorToSession(status.Errorf(codes.PermissionDenied, "Match is members only"))
+		}
+	}
+
 	metricsTags := map[string]string{
 		"team":    TeamIndex(request.TeamIndex).String(),
 		"mode":    ml.Mode.String(),

@@ -178,7 +178,6 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	groupFlags := map[string]*bool{
 		GroupGlobalDevelopers: &flags.IsDeveloper,
 		GroupGlobalModerators: &flags.IsModerator,
-		GroupGlobalBots:       &flags.IsBroadcaster,
 		GroupGlobalTesters:    &flags.IsTester,
 	}
 

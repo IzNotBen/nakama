@@ -35,6 +35,7 @@ const (
 	FlagGlobalBots
 	FlagGlobalBadgeAdmins
 	FlagNoVR
+	GroupGlobalAdminBots = "Global Moderator Bots"
 )
 
 func InitializeEvrRuntimeModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, initializer runtime.Initializer) (err error) {

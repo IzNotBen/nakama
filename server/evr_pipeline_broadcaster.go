@@ -330,7 +330,12 @@ func broadcasterConfig(userId, sessionId string, serverId uint64, internalIP, ex
 
 	if len(tags) > 0 {
 		config.Tags = tags
+		if lo.Contains(tags, "membersonly") {
+			// Servers that are members only are not available for public hosting
+			config.Tags = append(config.Tags, "regiononly")
+		}
 	}
+
 	return config
 }
 
