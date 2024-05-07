@@ -90,7 +90,7 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	payload := request.GetLoginProfile()
 
 	// Construct the device auth token from the login payload
-	deviceId := &DeviceId{
+	deviceId := DeviceId{
 		AppId:           payload.GetAppID(),
 		EvrId:           request.GetEvrID(),
 		HmdSerialNumber: payload.GetHMDSerialNumber(),
@@ -118,7 +118,7 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 }
 
 // processLogin handles the authentication of the login connection.
-func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrId evr.EvrId, deviceId *DeviceId, discordId string, userPassword string, loginProfile evr.LoginProfile) (settings evr.EchoClientSettings, err error) {
+func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrId evr.EvrId, deviceId DeviceId, discordId string, userPassword string, loginProfile evr.LoginProfile) (settings evr.GameClientSettings, err error) {
 	// Authenticate the account.
 	account, err := p.authenticateAccount(ctx, logger, session, deviceId, discordId, userPassword, loginProfile)
 	if err != nil {

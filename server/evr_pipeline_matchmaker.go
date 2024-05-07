@@ -32,15 +32,6 @@ func (p *EvrPipeline) lobbyMatchmakerStatusRequest(ctx context.Context, logger *
 	return nil
 }
 
-type AuthorizationFailure struct {
-	Reason string
-	err    error
-}
-
-func (a AuthorizationFailure) Error() string {
-	return a.Reason
-}
-
 // authorizeMatchmaking checks if the user is allowed to join a public match or spawn a new match
 func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logger, session *sessionWS, loginSessionID uuid.UUID, groupID uuid.UUID, requireMembership bool) error {
 
@@ -74,7 +65,7 @@ func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logg
 	}
 
 	if err := session.MatchSession(); err != nil {
-		return errors.New("failed to get match session")
+		return fmt.Errorf("failed to get match session: %w", err)
 	}
 
 	if channel == uuid.Nil {
@@ -99,7 +90,7 @@ func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logg
 
 func EnforceSingleMatch(logger *zap.Logger, session *sessionWS, evrID evr.EvrId) {
 	// Disconnect this EVRID from other matches
-	sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: evrID.UUID(), Subcontext: svcMatchID})
+	sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: evrID.UUID(), Subcontext: StreamContextMatch})
 	for _, foundSessionID := range sessionIDs {
 		if foundSessionID == session.id {
 			// Allow the current session, only disconnect any older ones.
@@ -234,14 +225,16 @@ func (p *EvrPipeline) matchmakingLabelFromFindRequest(ctx context.Context, sessi
 		Open:    true,
 
 		SessionSettings: &request.SessionSettings,
-		TeamIndex:       TeamIndex(request.TeamIndex),
-
 		Broadcaster: MatchBroadcaster{
 			VersionLock: request.VersionLock,
 			Channels:    guildPriority,
 			Features:    features,
 		},
-	}, nil
+	}
+	if len(request.Entrants) > 0 {
+		ml.TeamIndex = TeamIndex(request.Entrants[0].TeamIndex)
+	}
+	return ml, nil
 }
 
 // lobbyFindSessionRequest is a message requesting to find a public session to join.
@@ -251,12 +244,14 @@ func (p *EvrPipeline) lobbyFindSessionRequest(ctx context.Context, logger *zap.L
 	response := NewMatchmakingResult(session, logger, request.Mode, request.Channel)
 
 	metricsTags := map[string]string{
-		"mode":     request.Mode.String(),
-		"channel":  request.Channel.String(),
-		"level":    request.Level.String(),
-		"team_idx": strconv.FormatInt(int64(request.TeamIndex), 10),
+		"mode":         request.Mode.String(),
+		"channel":      request.Channel.String(),
+		"level":        request.Level.String(),
+		"player_count": strconv.FormatInt(int64(len(request.Entrants)), 10),
 	}
+
 	p.metrics.CustomCounter("lobbyfindsession_active_count", metricsTags, 1)
+
 	loginSessionID := request.LoginSessionID
 	groups, priorities, err := p.GetGuildPriorityList(ctx, session.userID)
 	if err != nil {
@@ -407,10 +402,8 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 		case <-backfillDelayTimer.C:
 		case <-backfillTicker.C:
 		}
-		if msession.Label.Mode != evr.ModeSocialPublic && msession.Party != nil && msession.Party.members.Size() > 1 {
-			// Don't backfill party members, let the matchmaker handle it.
-			continue
-		}
+
+		msession.UpdatePlayerCounts()
 
 		foundMatch := FoundMatch{}
 		// Backfill any existing matches
@@ -446,7 +439,7 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 		p.metrics.CustomCounter("match_backfill_found_count", msession.metricsTags(), 1)
 
 		if msession.Party != nil && !msession.Party.ID.IsNil() {
-			// Send all the members of the party to the match
+			// Send all the members of the party (that have matching labels) to the match
 			msession.Party.Lock()
 			for _, presence := range msession.Party.members.presences {
 				if presence == nil {
@@ -459,11 +452,11 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 						continue
 					default:
 					}
-
 					// Send the match to the session
 					ms.Lock()
 					ms.MatchJoinCh <- foundMatch
 					ms.Unlock()
+					p.metrics.CustomCounter("match_backfill_party_member_count", msession.metricsTags(), 1)
 				}
 			}
 
@@ -550,14 +543,15 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 
 	// Create a new matching session
 	logger.Debug("Creating a new matchmaking session")
-	partySize := 1
+
 	timeout := 60 * time.Minute
 
 	if ml.TeamIndex == TeamIndex(evr.TeamSpectator) {
 		timeout = 12 * time.Hour
 	}
 
-	msession, err := p.matchmakingRegistry.Create(parentCtx, logger, session, ml, partySize, timeout, errorFn, joinFn)
+	joinParty := true
+	msession, err := p.matchmakingRegistry.Create(parentCtx, logger, session, ml, timeout, errorFn, joinFn, joinParty)
 	if err != nil {
 		logger.Error("Failed to create matchmaking session", zap.Error(err))
 		return err
@@ -628,99 +622,74 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 		return nil
 	}
 
-	switch ml.Mode {
-	// For public matches, backfill or matchmake
-	// If it's a social match, backfill or create immediately
-	case evr.ModeSocialPublic:
-		// Continue to try to backfill
-		skipBackfillDelay = true
-		go p.MatchBackfillLoop(session, msession, skipBackfillDelay, true, 1)
+	validModes := []evr.Symbol{
+		evr.ModeArenaPublic,
+		evr.ModeCombatPublic,
+		evr.ModeSocialPublic,
+	}
 
-		// For public arena/combat matches, backfill while matchmaking
-	case evr.ModeCombatPublic:
+	if !lo.Contains(validModes, ml.Mode) {
+		return fmt.Errorf("invalid mode for match find")
+	}
 
-		env := p.config.GetRuntime().Environment
-		channelID, ok := env["COMBAT_MATCHMAKING_CHANNEL_ID"]
-		if ok {
+	go func() {
 
-			if bot := p.discordRegistry.GetBot(); bot != nil && ml.TeamIndex != TeamIndex(evr.TeamSpectator) {
-				// Count how many players are matchmaking for this mode right now
-				sessionsByMode := p.matchmakingRegistry.SessionsByMode()
+		// This is in a go function because there are timers that need to be waited on
+		// Get the user into a match first (the matchID will be nil)
 
-				userIDs := make([]uuid.UUID, 0)
-				for _, s := range sessionsByMode[ml.Mode] {
+		if msession.Party != nil && !msession.Party.ID.IsNil() && ml.MatchID != uuid.Nil {
+			ph := msession.Party
+			ph.RLock()
+			leader := ph.leader.UserPresence
+			ph.RUnlock()
+			if leader == nil {
+				msession.Cancel(status.Errorf(codes.Internal, "Party leader not found"))
+			}
 
-					if s.Session.userID == session.userID || s.Label.TeamIndex == TeamIndex(evr.TeamSpectator) {
-						continue
-					}
+			// If this user is not the party leader, join the party leader, or return and wait for the party leader to matchmake.
+			if leader.GetUserId() != session.UserID().String() {
+				p.MatchmakeWithParty(msession, ph)
+				return
+			}
 
-					userIDs = append(userIDs, s.Session.userID)
-				}
+			// This is the leader, wait for party members before starting match making
+			_, err := p.WaitForPartyMembers(msession.Context(), logger, msession)
+			if err != nil {
+				msession.Cancel(err)
+				return
+			}
 
-				currentLobby, _ := p.matchBySessionID.Load(session.id.String())
+		}
 
-				// Translate the userID's to discord ID's
-				discordIDs := make([]string, 0, len(userIDs))
-				for _, userID := range userIDs {
+		skipBackfillDelay = false
+		create := false
+		matchMake := true
+		if ml.Mode == evr.ModeSocialPublic || ml.Mode == evr.ModeCombatPublic {
+			skipBackfillDelay = true
+		}
 
-					did, err := p.discordRegistry.GetDiscordIdByUserId(parentCtx, userID)
-					if err != nil {
-						logger.Warn("Failed to get discord ID", zap.Error(err))
-						continue
-					}
-					discordIDs = append(discordIDs, fmt.Sprintf("<@%s>", did))
-				}
+		if ml.Mode == evr.ModeSocialPublic {
+			create = true
+			matchMake = false
+		}
+		// Start the backfill loop
+		go p.MatchBackfillLoop(session, msession, skipBackfillDelay, create)
 
-				discordID, err := p.discordRegistry.GetDiscordIdByUserId(parentCtx, session.userID)
-				if err != nil {
-					logger.Warn("Failed to get discord ID", zap.Error(err))
-				}
-
-				msg := fmt.Sprintf("<@%s> is matchmaking...", discordID)
-				if len(discordIDs) > 0 {
-					msg = fmt.Sprintf("%s along with %s...", msg, strings.Join(discordIDs, ", "))
-				}
-
-				embed := discordgo.MessageEmbed{
-					Title:       "Matchmaking",
-					Description: msg,
-					Color:       0x00cc00,
-				}
-
-				if currentLobby != "" {
-					embed.Footer = &discordgo.MessageEmbedFooter{
-						Text: currentLobby,
-					}
-				}
-
-				// Notify the channel that this person started queuing
-				bot.ChannelMessageSendEmbed(channelID, &embed)
+		// Let the backfill complete, otherwise the client will ignore a second ping request.
+		select {
+		case <-msession.Ctx.Done():
+			// Match already found/created (commonly a social lobby)
+			return
+		case <-time.After(5 * time.Second):
+		}
+		if matchMake {
+			// Put a ticket in for matching
+			err := p.MatchMake(session, msession)
+			if err != nil {
+				msession.Cancel(err)
 			}
 		}
-
-		// Join any on-going combat match without delay
-		skipBackfillDelay = false
-		go p.MatchBackfillLoop(session, msession, skipBackfillDelay, false, 1)
-
-		// Put a ticket in for matching
-		_, err = p.MatchMake(session, msession)
-		if err != nil {
-			return err
-		}
-
-	case evr.ModeArenaPublic:
-
-		// Start the backfill loop
-		go p.MatchBackfillLoop(session, msession, skipBackfillDelay, false, 1)
-
-		// Put a ticket in for matching
-		_, err := p.MatchMake(session, msession)
-		if err != nil {
-			return err
-		}
-	default:
-		return status.Errorf(codes.InvalidArgument, "invalid mode")
-	}
+	}()
 
 	return nil
 }
@@ -987,8 +956,6 @@ func (p *EvrPipeline) lobbyCreateSessionRequest(ctx context.Context, logger *zap
 
 	// Start the search in a goroutine.
 	go func() error {
-		// Set some defaults
-		partySize := 1 // TODO FIXME this should include the party size
 
 		joinFn := func(matchID string, query string) error {
 			logger := logger.With(zap.String("mid", matchID))
@@ -1009,7 +976,7 @@ func (p *EvrPipeline) lobbyCreateSessionRequest(ctx context.Context, logger *zap
 
 		// Create a matching session
 		timeout := 15 * time.Minute
-		msession, err := p.matchmakingRegistry.Create(ctx, logger, session, ml, partySize, timeout, errorFn, joinFn)
+		msession, err := p.matchmakingRegistry.Create(ctx, logger, session, ml, timeout, errorFn, joinFn, false)
 		if err != nil {
 			return response.SendErrorToSession(status.Errorf(codes.Internal, "Failed to create matchmaking session: %v", err))
 		}
@@ -1127,15 +1094,12 @@ func (p *EvrPipeline) pruneMatches(ctx context.Context, session *sessionWS) erro
 	if err != nil {
 		return err
 	}
-	signal := SignalPruneUnderutilized{}
-
-	signalData, err := json.Marshal(signal)
-	if err != nil {
-		return err
+	signal := SignalData{
+		OpCode: SignalCodePruneUnderutilized,
 	}
 
 	for _, match := range matches {
-		_, err := SignalMatch(ctx, p.matchRegistry, match.MatchId, signalData)
+		_, err := SignalMatch(ctx, p.matchRegistry, match.MatchId, signal)
 		if err != nil {
 			return err
 

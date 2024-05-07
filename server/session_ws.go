@@ -44,10 +44,11 @@ const (
 var (
 	ErrSessionQueueFull = errors.New("session outgoing queue full")
 
-	svcLoginID       = uuid.FromStringOrNil("00000000-0000-0000-0000-000000000001")
-	svcMatchID       = uuid.FromStringOrNil("00000000-0000-0000-0000-000000000002")
-	svcBroadcasterID = uuid.FromStringOrNil("00000000-0000-0000-0000-000000000003")
-	featurePattern   = regexp.MustCompile(`^[a-z0-9_]+$`)
+	// Subcontext's used for presence tracking.
+	StreamContextLogin       = uuid.FromStringOrNil("00000000-0000-0000-0000-000000000001")
+	StreamContextMatch       = uuid.FromStringOrNil("00000000-0000-0000-0000-000000000002")
+	StreamContextBroadcaster = uuid.FromStringOrNil("00000000-0000-0000-0000-000000000003")
+	featurePattern           = regexp.MustCompile(`^[a-z0-9_]+$`)
 )
 
 type (
@@ -276,7 +277,7 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 	}
 }
 
-func (s *sessionWS) LoginSession(ctx context.Context, userID string, username string, evrID evr.EvrId, deviceId *DeviceId, groupID uuid.UUID, flags SessionFlags, version string) error {
+func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId, deviceId DeviceId, flags SessionFlags, version string) error {
 	// Each player has a single login connection, which will act as the core session.
 	// When this connection is terminated, all other connections should be terminated.
 
@@ -291,7 +292,7 @@ func (s *sessionWS) LoginSession(ctx context.Context, userID string, username st
 
 	// Replace the session context with a derived one that includes the login session ID and the EVR ID
 
-	ctx = context.WithValue(ctx, ctxLoginSessionKey{}, s)
+	ctx := context.WithValue(s.Context(), ctxLoginSessionKey{}, s)
 	ctx = context.WithValue(ctx, ctxEvrIDKey{}, evrID)
 	ctx = context.WithValue(ctx, ctxUserIDKey{}, uuid.FromStringOrNil(userID)) // apiServer compatibility
 	ctx = context.WithValue(ctx, ctxUsernameKey{}, username)                   // apiServer compatibility
@@ -313,12 +314,12 @@ func (s *sessionWS) LoginSession(ctx context.Context, userID string, username st
 	s.tracker.TrackMulti(ctx, s.id, []*TrackerOp{
 		// EVR packet data stream for the login session by user ID, and service ID, with EVR ID
 		{
-			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.userID, Subcontext: svcLoginID},
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.userID, Subcontext: StreamContextLogin},
 			Meta:   PresenceMeta{Format: s.format, Username: evrID.Token(), Hidden: true},
 		},
 		// EVR packet data stream for the login session by session ID and service ID, with EVR ID
 		{
-			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.id, Subcontext: svcLoginID},
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.id, Subcontext: StreamContextLogin},
 			Meta:   PresenceMeta{Format: s.format, Username: evrID.Token(), Hidden: true},
 		},
 		// Notification presence.
@@ -348,7 +349,6 @@ func (s *sessionWS) BroadcasterSession(userID string, username string) error {
 	ctx = context.WithValue(ctx, ctxVarsKey{}, s.vars)                                  // apiServer compatibility
 	ctx = context.WithValue(ctx, ctxExpiryKey{}, s.expiry)                              // apiServer compatibility
 
-	s.SetUsername(username)
 	s.Lock()
 	s.ctx = ctx
 	s.userID = uuid.FromStringOrNil(userID)
@@ -367,12 +367,12 @@ func (s *sessionWS) BroadcasterSession(userID string, username string) error {
 		},
 		// EVR packet data stream for the login session by Session ID and broadcaster ID
 		{
-			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.userID, Subcontext: svcBroadcasterID},
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.userID, Subcontext: StreamContextBroadcaster},
 			Meta:   PresenceMeta{Format: s.format, Username: s.username.String(), Hidden: true},
 		},
 		// EVR packet data stream by session ID and broadcaster ID
 		{
-			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.id, Subcontext: svcBroadcasterID},
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.id, Subcontext: StreamContextBroadcaster},
 			Meta:   PresenceMeta{Format: s.format, Username: s.username.String(), Hidden: true},
 		},
 	}, s.userID)
@@ -382,9 +382,9 @@ func (s *sessionWS) BroadcasterSession(userID string, username string) error {
 
 func (s *sessionWS) MatchSession() error {
 	// Get the Login Session ID from the context
-	loginSessionID, ok := s.Context().Value(ctxLoginSessionKey{}).(uuid.UUID)
+	loginSession, ok := s.Context().Value(ctxLoginSessionKey{}).(*sessionWS)
 	if !ok {
-		return fmt.Errorf("login session ID not found in context")
+		return fmt.Errorf("login session not found in context")
 	}
 
 	// Get the EvrID from the context
@@ -396,17 +396,21 @@ func (s *sessionWS) MatchSession() error {
 	// Track this session as a matchmaking session.
 	s.tracker.TrackMulti(s.ctx, s.id, []*TrackerOp{
 		{
-			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.id, Subcontext: svcMatchID},
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.userID, Subcontext: StreamContextMatch},
+			Meta:   PresenceMeta{Format: s.format, Hidden: true},
+		},
+		{
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: s.id, Subcontext: StreamContextMatch},
 			Meta:   PresenceMeta{Format: s.format, Hidden: true},
 		},
 		// By login sessionID and match service ID
 		{
-			Stream: PresenceStream{Mode: StreamModeEvr, Subject: loginSessionID, Subcontext: svcMatchID},
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: loginSession.id, Subcontext: StreamContextMatch},
 			Meta:   PresenceMeta{Format: s.format, Hidden: true},
 		},
 		// By EVRID and match service ID
 		{
-			Stream: PresenceStream{Mode: StreamModeEvr, Subject: evrID.UUID(), Subcontext: svcMatchID},
+			Stream: PresenceStream{Mode: StreamModeEvr, Subject: evrID.UUID(), Subcontext: StreamContextMatch},
 			Meta:   PresenceMeta{Format: s.format, Hidden: true},
 		},
 		// EVR packet data stream for the match session by Session ID and service ID

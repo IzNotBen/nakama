@@ -63,6 +63,7 @@ type DiscordRegistry interface {
 	UpdateAllGuildGroupsForUser(ctx context.Context, logger runtime.Logger, userID uuid.UUID) error
 	isModerator(ctx context.Context, guildID, discordID string) (isModerator bool, isGlobal bool, err error)
 	IsGlobalModerator(ctx context.Context, userID uuid.UUID) (ok bool, err error)
+	SendMessage(ctx context.Context, userID uuid.UUID, message string) error
 }
 
 // The discord registry is a storage-backed lookup table for discord user ids to nakama user ids.
@@ -97,6 +98,7 @@ func NewLocalDiscordRegistry(ctx context.Context, nk runtime.NakamaModule, logge
 
 	dg.AddHandler(func(s *discordgo.Session, m *discordgo.Ready) {
 		discordRegistry.PopulateCache() // Populate the cache with all the guilds and their roles
+
 	})
 
 	return discordRegistry
@@ -620,7 +622,7 @@ func (r *LocalDiscordRegistry) UpdateGuildGroup(ctx context.Context, logger runt
 
 		// If the player has a match connection, disconnect it.
 		subject := userID.String()
-		subcontext := svcMatchID.String()
+		subcontext := StreamContextMatch.String()
 		users, err := r.nk.StreamUserList(StreamModeEvr, subject, subcontext, "", true, true)
 		if err != nil {
 			r.logger.Error("Error getting stream users: %w", err)
@@ -1008,4 +1010,23 @@ func (r *LocalDiscordRegistry) isSystemGroupMember(ctx context.Context, userID u
 		}
 	}
 	return false, nil
+}
+
+func (r *LocalDiscordRegistry) SendMessage(ctx context.Context, userID uuid.UUID, message string) error {
+	return nil
+	discordID, found := r.GetDiscordIdByUserId(ctx, userID)
+	if found != nil {
+		return fmt.Errorf("error getting discord id: %w", found)
+	}
+
+	channel, err := r.bot.UserChannelCreate(discordID)
+	if err != nil {
+		return fmt.Errorf("error creating user channel: %w", err)
+	}
+
+	_, err = r.bot.ChannelMessageSend(channel.ID, message)
+	if err != nil {
+		return fmt.Errorf("error sending message: %w", err)
+	}
+	return nil
 }

@@ -29,6 +29,7 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/heroiclabs/nakama-common/api"
+	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
 	"github.com/samber/lo"
@@ -48,14 +49,16 @@ const (
 )
 
 var (
-	ErrMatchmakingPingTimeout          = status.Errorf(codes.DeadlineExceeded, "Ping timeout")
-	ErrMatchmakingTimeout              = status.Errorf(codes.DeadlineExceeded, "Matchmaking timeout")
-	ErrMatchmakingNoAvailableServers   = status.Errorf(codes.Unavailable, "No available servers")
-	ErrMatchmakingCanceled             = status.Errorf(codes.Canceled, "Matchmaking canceled")
-	ErrMatchmakingCanceledByPlayer     = status.Errorf(codes.Canceled, "Matchmaking canceled by player")
-	ErrMatchmakingRestarted            = status.Errorf(codes.Canceled, "matchmaking restarted")
-	ErrMatchmakingMigrationRequired    = status.Errorf(codes.FailedPrecondition, "Server upgraded, migration")
-	MatchmakingStreamSubject           = uuid.NewV5(uuid.Nil, "matchmaking").String()
+	ErrMatchmakingPingTimeout        = status.Errorf(codes.DeadlineExceeded, "Ping timeout")
+	ErrMatchmakingTimeout            = status.Errorf(codes.DeadlineExceeded, "Matchmaking timeout")
+	ErrMatchmakingJoiningMatch       = status.Errorf(codes.OK, "Joining match")
+	ErrMatchmakingNoAvailableServers = status.Errorf(codes.Unavailable, "No available servers")
+	ErrMatchmakingCanceled           = status.Errorf(codes.Canceled, "Matchmaking canceled")
+	ErrMatchmakingCanceledByPlayer   = status.Errorf(codes.Canceled, "Matchmaking canceled by player")
+	ErrMatchmakingRestarted          = status.Errorf(codes.Canceled, "matchmaking restarted")
+	ErrMatchmakingMigrationRequired  = status.Errorf(codes.FailedPrecondition, "Server upgraded, migration")
+	MatchmakingStreamSubject         = uuid.NewV5(uuid.Nil, "matchmaking").String()
+
 	MatchmakingConfigStorageCollection = "Matchmaker"
 	MatchmakingConfigStorageKey        = "config"
 )
@@ -154,7 +157,7 @@ type MatchmakingSession struct {
 	Ctx            context.Context
 	CtxCancelFn    context.CancelCauseFunc
 	Logger         *zap.Logger
-	UserId         uuid.UUID
+	Session        *sessionWS
 	MatchJoinCh    chan FoundMatch               // Channel for MatchId to join.
 	PingResultsCh  chan []evr.EndpointPingResult // Channel for ping completion.
 	Expiry         time.Time
@@ -253,6 +256,10 @@ func (mr *MatchmakingResult) SetErrorFromStatus(err error) *MatchmakingResult {
 	mr.err = err
 
 	if s, ok := status.FromError(err); ok {
+		if s.Code() == codes.OK {
+			return nil
+		}
+
 		mr.Message = s.Message()
 		mr.Code = determineErrorCode(s.Code())
 	} else {
@@ -311,6 +318,7 @@ type MatchmakingRegistry struct {
 	db            *sql.DB
 	logger        *zap.Logger
 	matchRegistry MatchRegistry
+	matchmaker    Matchmaker
 	metrics       Metrics
 	config        Config
 	evrPipeline   *EvrPipeline
@@ -331,6 +339,7 @@ func NewMatchmakingRegistry(logger *zap.Logger, matchRegistry MatchRegistry, mat
 		db:            db,
 		logger:        logger,
 		matchRegistry: matchRegistry,
+		matchmaker:    matchmaker,
 		metrics:       metrics,
 		config:        config,
 
@@ -479,28 +488,29 @@ func (mr *MatchmakingRegistry) listUnfilledLobbies(ctx context.Context, logger *
 }
 
 func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config MatchmakingSettings) {
-	logger := mr.logger.With(zap.Int("entrants", len(entrants)))
+	logger := mr.logger
 
-	logger.Debug("Building match", zap.Any("entrants", entrants))
-	// Use the properties from the first entrant to get the channel
-
-	channelMap := make(map[uuid.UUID]int, len(entrants))
+	// Get the channels from the entrants
+	channelmap := make(map[uuid.UUID]int, len(entrants))
 	for _, e := range entrants {
-		channel := uuid.FromStringOrNil(e.StringProperties["channel"])
-		if channel == uuid.Nil {
-			continue
-		}
-		channelMap[channel]++
+		stringProperties := e.StringProperties
+		channel := uuid.FromStringOrNil(stringProperties["channel"])
+		channelmap[channel] += 1
 	}
-
-	channels := make([]uuid.UUID, 0, len(channelMap))
-	for k := range channelMap {
+	channels := make([]uuid.UUID, 0, len(channelmap))
+	for k := range channelmap {
 		channels = append(channels, k)
 	}
 
+	// Sort the channels by the most common
 	sort.SliceStable(channels, func(i, j int) bool {
-		return channelMap[channels[i]] > channelMap[channels[j]]
+		return channelmap[channels[i]] > channelmap[channels[j]]
 	})
+
+	// Get the top 10 channels
+	if len(channels) > 10 {
+		channels = channels[:10]
+	}
 
 	// Get a map of all broadcasters by their key
 	broadcastersByExtIP := make(map[string]evr.Endpoint, 100)
@@ -652,7 +662,7 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 	ml.SpawnedBy = uuid.Nil.String()
 
 	// Loop until a server becomes available or matchmaking times out.
-	timeout := time.After(10 * time.Minute)
+	timeout := time.After(3 * time.Minute)
 	interval := time.NewTicker(10 * time.Second)
 
 	select {
@@ -662,11 +672,11 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 	}
 	matchID := ""
 
-	for {
-		var err error
 		matchID, err = mr.allocateBroadcaster(channels, config, sorted, ml)
 		if err != nil {
-			mr.logger.Warn("Error allocating broadcaster", zap.Error(err))
+			if err != ErrMatchmakingNoAvailableServers {
+				mr.logger.Error("Error allocating broadcaster", zap.Error(err))
+			}
 		}
 		if matchID != "" {
 			break
@@ -799,14 +809,17 @@ func distributeParties(parties [][]*MatchmakerEntry) [][]*MatchmakerEntry {
 }
 
 func (mr *MatchmakingRegistry) allocateBroadcaster(channels []uuid.UUID, config MatchmakingSettings, sorted []string, label *EvrMatchState) (string, error) {
+func (mr *MatchmakingRegistry) allocateBroadcaster(channels []uuid.UUID, config MatchmakingSettings, sorted []string, label *EvrMatchState) (string, error) {
 	// Lock the broadcasters so that they aren't double allocated
 	mr.Lock()
 	defer mr.Unlock()
-	available, err := mr.ListUnassignedLobbies(mr.ctx, channels)
+	available, err := mr.ListUnassignedLobbies(mr.ctx, channels, evr.Symbol(0), config.MatchmakingQueryAddon)
 	if err != nil {
 		return "", err
 	}
-
+	if len(available) == 0 {
+		return "", ErrMatchmakingNoAvailableServers
+	}
 	availableByExtIP := make(map[string]string, len(available))
 
 	for _, label := range available {
@@ -885,31 +898,42 @@ func (c *MatchmakingRegistry) updateBroadcasters() {
 	}
 }
 
-func (c *MatchmakingRegistry) ListUnassignedLobbies(ctx context.Context, channels []uuid.UUID) ([]*EvrMatchState, error) {
+func (c *MatchmakingRegistry) ListUnassignedLobbies(ctx context.Context, channels []uuid.UUID, region evr.Symbol, queryAddon string) ([]*EvrMatchState, error) {
 
+	// TODO Move this into the matchmaking registry
 	qparts := make([]string, 0, 10)
 
 	// MUST be an unassigned lobby
 	qparts = append(qparts, LobbyType(evr.UnassignedLobby).Query(Must, 0))
 
+	// MUST be one of the accessible channels (if provided)
 	if len(channels) > 0 {
-		// MUST be hosting for this channel
+		// Add the channels to the query
 		qparts = append(qparts, HostedChannels(channels).Query(Must, 0))
 	}
 
+	// Add each hosted channel as a SHOULD, with decreasing boost
+
+	for i, channel := range channels {
+		qparts = append(qparts, Channel(channel).Query(Should, len(channels)-i))
+	}
+
+	// SHOULD match the region (if specified)
+	if region.IsNotNil() {
+		qparts = append(qparts, Region(region).Query(Should, 3))
+	}
+
+	qparts = append(qparts, queryAddon)
+
 	// TODO FIXME Add version lock and appid
 	query := strings.Join(qparts, " ")
-	c.logger.Debug("Listing unassigned lobbies", zap.String("query", query))
-	limit := 200
+
+	limit := 100
 	minSize, maxSize := 1, 1 // Only the 1 broadcaster should be there.
+
 	matches, err := c.listMatches(ctx, limit, minSize, maxSize, query)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to find matches: %v", err)
-	}
-
-	// If no servers are available, return immediately.
-	if len(matches) == 0 {
-		return nil, ErrMatchmakingNoAvailableServers
 	}
 
 	// Create a slice containing the matches' labels
@@ -919,7 +943,18 @@ func (c *MatchmakingRegistry) ListUnassignedLobbies(ctx context.Context, channel
 		if err := json.Unmarshal([]byte(match.GetLabel().GetValue()), label); err != nil {
 			return nil, status.Errorf(codes.Internal, "Failed to unmarshal match label: %v", err)
 		}
+
+		// Check special tags
+		if region.IsNotNil() && label.Broadcaster.Region != region && lo.Contains(label.Broadcaster.Tags, "regiononly") {
+			continue
+		}
+
 		labels = append(labels, label)
+	}
+
+	// If no servers are available, return immediately.
+	if len(labels) == 0 {
+		return nil, ErrMatchmakingNoAvailableServers
 	}
 
 	return labels, nil
@@ -1118,7 +1153,7 @@ func (c *MatchmakingRegistry) Delete(sessionId uuid.UUID) {
 }
 
 // Add adds a matching session to the registry
-func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, session *sessionWS, ml *EvrMatchState, partySize int, timeout time.Duration, errorFn func(err error) error, joinFn func(matchId string, query string) error) (*MatchmakingSession, error) {
+func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, session *sessionWS, ml *EvrMatchState, timeout time.Duration, errorFn func(err error) error, joinFn func(matchId string, query string) error, joinParty bool) (*MatchmakingSession, error) {
 	// Check if there is an existing session
 	if _, ok := c.GetMatchingBySessionId(session.ID()); ok {
 		// Cancel it
@@ -1138,26 +1173,6 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 	ml.Open = true // Open for joining
 	ml.MaxSize = MatchMaxSize
 
-	// Set defaults for public matches
-	switch {
-	case ml.Mode == evr.ModeSocialPrivate || ml.Mode == evr.ModeSocialPublic:
-		ml.Level = evr.LevelSocial // Include the level in the search
-		ml.TeamSize = MatchMaxSize
-		ml.Size = MatchMaxSize - partySize
-
-	case ml.Mode == evr.ModeArenaPublic:
-		ml.TeamSize = 4
-		ml.Size = ml.TeamSize*2 - partySize // Both teams, minus the party size
-
-	case ml.Mode == evr.ModeCombatPublic:
-		ml.TeamSize = 5
-		ml.Size = ml.TeamSize*2 - partySize // Both teams, minus the party size
-
-	default: // Privates
-		ml.Size = MatchMaxSize - partySize
-		ml.TeamSize = 5
-	}
-
 	logger = logger.With(zap.String("msid", session.ID().String()))
 	ctx, cancel := context.WithCancelCause(ctx)
 	msession := &MatchmakingSession{
@@ -1165,7 +1180,7 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 		CtxCancelFn: cancel,
 
 		Logger:         logger,
-		UserId:         session.UserID(),
+		Session:        session,
 		MatchJoinCh:    make(chan FoundMatch, 5),
 		PingResultsCh:  make(chan []evr.EndpointPingResult),
 		Expiry:         time.Now().UTC().Add(findAttemptsExpiry),
@@ -1183,6 +1198,13 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 	}
 	msession.LatencyCache = cache
 
+	// Join the party if requested
+	if joinParty && userSettings.GroupID != "" && msession.Label.TeamIndex != Spectator && msession.Label.TeamIndex != Moderator {
+		if err := msession.joinParty(); err != nil {
+			return nil, err
+		}
+	}
+	msession.UpdatePlayerCounts()
 	// listen for a match ID to join
 	go func() {
 		// Create a timer for this session
@@ -1216,13 +1238,24 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 			c.metrics.CustomCounter("matchmaking_session_success_count", metricsTags, 1)
 
 		}
-		if err != nil {
-			if err == ErrMatchmakingCanceledByPlayer {
-				metricsTags["result"] = "canceled"
-			} else {
-				metricsTags["result"] = "error"
-				defer errorFn(err)
+		switch err {
+		case ErrMatchmakingJoiningMatch:
+			metricsTags["result"] = "joining"
+		case ErrMatchmakingCanceledByPlayer:
+			metricsTags["result"] = "canceled"
+		case nil:
+		default:
+			metricsTags["result"] = "error"
+			defer errorFn(err)
+		}
+
+		if len(msession.Tickets) > 0 {
+			// Remove the tickets from the matchmaker
+			tickets := make([]string, 0, len(msession.Tickets))
+			for _, v := range msession.Tickets {
+				tickets = append(tickets, v.TicketID)
 			}
+			c.matchmaker.Remove(tickets)
 		}
 		c.StoreLatencyCache(session)
 		c.Delete(session.id)
@@ -1287,6 +1320,107 @@ func (c *MatchmakingRegistry) GetLatencies(userId uuid.UUID, endpoints []evr.End
 	return results
 }
 
+func (ms *MatchmakingSession) UpdatePlayerCounts() {
+
+	partySize := 1
+	if ms.Party != nil {
+		partySize = ms.Party.members.Size()
+	}
+	ml := ms.Label
+
+	// Set defaults for public matches
+	switch {
+	case ml.Mode == evr.ModeSocialPrivate || ml.Mode == evr.ModeSocialPublic:
+		ml.Level = evr.LevelSocial // Include the level in the search
+		ml.TeamSize = MatchMaxSize
+		ml.PlayerCount = MatchMaxSize - partySize
+
+	case ml.Mode == evr.ModeArenaPublic || ml.Mode == evr.ModeCombatPublic:
+		ml.TeamSize = 4
+		ml.PlayerCount = ml.TeamSize*2 - partySize // Both teams, minus the party size
+
+	default: // Privates
+		ml.PlayerCount = MatchMaxSize - partySize
+		ml.TeamSize = 5
+	}
+}
+
+func (ms *MatchmakingSession) joinParty() error {
+
+	groupID := ms.UserSettings.GroupID
+	partyID := uuid.NewV5(uuid.Nil, groupID)
+	logger := ms.Logger.With(zap.String("party_id", partyID.String()))
+
+	if ms.Party != nil && ms.Party.IDStr == partyID.String() {
+		return nil
+	}
+
+	session := ms.Session
+	partyRegistry := session.pipeline.partyRegistry.(*LocalPartyRegistry)
+
+	// Check if the party exists
+	ph, found := partyRegistry.parties.Load(partyID)
+	if !found {
+		presence := &rtapi.UserPresence{
+			UserId:    session.UserID().String(),
+			SessionId: session.ID().String(),
+			Username:  session.Username(),
+		}
+		open := true
+		maxSize := 8
+
+		ph = NewPartyHandler(logger, partyRegistry, session.matchmaker, session.tracker, session.evrPipeline.streamManager, session.pipeline.router, partyID, session.pipeline.node, open, maxSize, presence)
+		partyRegistry.parties.Store(partyID, ph)
+
+		success, _ := session.tracker.Track(session.Context(), session.ID(), ph.Stream, session.UserID(), PresenceMeta{
+			Format:   session.Format(),
+			Username: session.Username(),
+			Status:   "",
+		})
+		if !success {
+			return status.Errorf(codes.Internal, "Failed to track user in party")
+		}
+		return nil
+	}
+
+	autoJoin, err := ph.JoinRequest(&Presence{
+		ID: PresenceID{
+			Node:      session.pipeline.node,
+			SessionID: session.ID(),
+		},
+		// Presence stream not needed.
+		UserID: session.UserID(),
+		Meta: PresenceMeta{
+			Username: session.Username(),
+			// Other meta fields not needed.
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	if autoJoin {
+		success, _ := session.tracker.Track(session.Context(), session.ID(), PresenceStream{Mode: StreamModeParty, Subject: partyID, Label: session.pipeline.node}, session.UserID(), PresenceMeta{
+			Format:   session.Format(),
+			Username: session.Username(),
+			Status:   "",
+		})
+		if !success {
+			return status.Errorf(codes.Internal, "Failed to track user in party as member")
+		}
+	}
+
+	// Wait for the tracker to update
+	<-time.After(1 * time.Second)
+	if err != nil {
+		if err != runtime.ErrPartyJoinRequestAlreadyMember {
+			return status.Errorf(codes.Internal, "Failed to join party group: %v", err)
+		}
+	}
+	ms.Party = ph
+	return nil
+}
+
 func (ms *MatchmakingSession) BuildQuery(latencies []LatencyMetric) (query string, stringProps map[string]string, numericProps map[string]float64, err error) {
 	// Create the properties maps
 	stringProps = make(map[string]string)
@@ -1299,7 +1433,7 @@ func (ms *MatchmakingSession) BuildQuery(latencies []LatencyMetric) (query strin
 	stringProps["channel"] = chstr
 
 	// Add this user's ID to the string props
-	stringProps["userid"] = strings.Replace(ms.UserId.String(), "-", "", -1)
+	stringProps["userid"] = strings.Replace(ms.Session.UserID().String(), "-", "", -1)
 
 	// Add a property of the external IP's RTT
 	for _, b := range latencies {

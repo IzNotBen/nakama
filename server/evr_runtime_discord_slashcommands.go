@@ -1574,6 +1574,25 @@ func (d *DiscordAppBot) RegisterSlashCommands() error {
 				return
 			}
 
+				// Get the userID
+				userID, err := d.discordRegistry.GetUserIdByDiscordId(ctx, user.ID, false)
+				if err != nil {
+					logger.Error("Failed to get user ID", zap.Error(err))
+					return
+				}
+
+				// Make sure the user is online
+				count, err := nk.StreamCount(StreamModeEvr, userID.String(), StreamContextMatch.String(), "")
+				if err != nil {
+					logger.Error("Failed to get user presence", zap.Error(err))
+					return
+				}
+				if count == 0 {
+					if err := simpleInteractionResponse(s, i, "You must be online (in a social lobby or match) to use this command."); err != nil {
+						logger.Warn("Failed to send interaction response", zap.Error(err))
+					}
+				}
+
 			guildID := ""
 			if member != nil {
 				memberships, err := d.discordRegistry.GetGuildGroupMemberships(ctx, userID, nil)
@@ -1654,6 +1673,136 @@ func (d *DiscordAppBot) RegisterSlashCommands() error {
 				}
 				return
 			}
+					logger.Error("Failed to read matchmaking config", zap.Error(err))
+				}
+				matchmakingConfig := &MatchmakingSettings{}
+				if len(objs) != 0 {
+					if err := json.Unmarshal([]byte(objs[0].Value), matchmakingConfig); err != nil {
+						logger.Error("Failed to unmarshal matchmaking config", zap.Error(err))
+						return
+					}
+				}
+
+				if matchmakingConfig.GroupID == "" {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Flags:   discordgo.MessageFlagsEphemeral,
+							Content: "You do not have a party groupID set.",
+						},
+					})
+					return
+				}
+
+				partyID := uuid.NewV5(uuid.NamespaceOID, matchmakingConfig.GroupID).String()
+				// Look up the users match presence
+				presences, err := nk.StreamUserList(StreamModeEvr, partyID, "", "", true, true)
+				if err != nil {
+					logger.Error("Failed to list party members", zap.Error(err))
+					return
+				}
+
+				/*
+						logger = logger.WithField("group_id", matchmakingConfig.GroupID)
+
+					// Look for presences
+					partyID := uuid.NewV5(uuid.Nil, matchmakingConfig.GroupID).String()
+					streamUsers, err := nk.StreamUserList(StreamModeParty, partyID, "", d.pipeline.node, true, true)
+					if err != nil {
+						logger.Error("Failed to list party members", zap.Error(err))
+						return
+					}
+
+					// Convert the members to discord user IDs
+					discordIds := make([]string, 0, len(streamUsers))
+					for _, streamUser := range streamUsers {
+						discordId, err := d.discordRegistry.GetDiscordIdByUserId(ctx, uuid.FromStringOrNil(streamUser.GetUserId()))
+						// Query the storage index
+						query := "+group_id:" + matchmakingConfig.GroupID
+						var members []string
+
+						idxobjs, err := nk.StorageIndexList(ctx, SystemUserID, ActivePartyGroupIndex, query, 1000)
+						if err != nil {
+							logger.Error("Failed to list party members", zap.Error(err))
+							return
+						}
+						for _, obj := range idxobjs.GetObjects() {
+							members = append(members, obj.UserId)
+						}
+				*/
+				discordIDs := make([]string, 0, len(presences))
+				for _, presence := range presences {
+					discordID, err := d.discordRegistry.GetDiscordIdByUserId(ctx, uuid.FromStringOrNil(presence.GetUserId()))
+					if err != nil {
+						logger.Error("Failed to get discord ID", zap.Error(err))
+						return
+					}
+					discordIDs = append(discordIDs, fmt.Sprintf("<@%s>", discordID))
+				}
+
+				// Create a list of the members
+				var content string
+				if len(discordIDs) == 0 {
+					content = "No members in your party group."
+				} else {
+					content = "Members in your party group:\n" + strings.Join(discordIDs, ", ")
+				}
+
+				// Send the message to the user
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Flags:   discordgo.MessageFlagsEphemeral,
+						Content: content,
+					},
+				})
+
+			case "group":
+				user := i.User
+				if i.Member != nil && i.Member.User != nil {
+					user = i.Member.User
+				}
+				options := options[0].Options
+				groupID := options[0].StringValue()
+				// Validate the group is 1 to 12 characters long
+				if len(groupID) < 1 || len(groupID) > 12 {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Flags:   discordgo.MessageFlagsEphemeral,
+							Content: "Invalid group ID. It must be between one (1) and eight (8) characters long.",
+						},
+					})
+				}
+				// Validate the group is alphanumeric
+				if !groupRegex.MatchString(groupID) {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Flags:   discordgo.MessageFlagsEphemeral,
+							Content: "Invalid group ID. It must be alphanumeric.",
+						},
+					})
+				}
+				// Validate the group is not a reserved group
+				if lo.Contains([]string{"admin", "moderator", "verified", "broadcaster"}, groupID) {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Flags:   discordgo.MessageFlagsEphemeral,
+							Content: "Invalid group ID. It is a reserved group.",
+						},
+					})
+				}
+				// lowercase the group
+				groupID = strings.ToLower(groupID)
+
+				// Get the userID
+				userID, err := discordRegistry.GetUserIdByDiscordId(ctx, user.ID, true)
+				if err != nil {
+					logger.Error("Failed to get user ID", zap.Error(err))
+					return
+				}
 
 			target := options[0].UserValue(s)
 			targetUserID, err := d.discordRegistry.GetUserIdByDiscordId(ctx, target.ID, false)
@@ -2497,7 +2646,7 @@ func (d *DiscordAppBot) getLoginSessionForUser(ctx context.Context, discordId st
 	presenceIDs := pipeline.tracker.ListPresenceIDByStream(PresenceStream{
 		Mode:       StreamModeEvr,
 		Subject:    uid,
-		Subcontext: svcLoginID,
+		Subcontext: StreamContextLogin,
 	})
 	if len(presenceIDs) == 0 {
 		return uid, uuid.Nil, fmt.Errorf("<@%s> must be logged into EchoVR to party up", discordId)
@@ -2565,6 +2714,16 @@ func getScopedUserMember(i *discordgo.InteractionCreate) (user *discordgo.User, 
 		}
 	}
 	return user, member
+}
+
+func simpleInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags:   discordgo.MessageFlagsEphemeral,
+			Content: content,
+		},
+	})
 }
 
 func simpleInteractionResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {

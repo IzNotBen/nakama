@@ -487,7 +487,7 @@ func (p *EvrPipeline) relayMatchData(ctx context.Context, logger *zap.Logger, se
 	matchIDStr, found = p.matchBySessionID.Load(session.ID().String())
 	if !found {
 		// Try to load the match ID from the presence stream
-		sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: session.id, Subcontext: svcMatchContext})
+		sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: session.id, Subcontext: StreamContextMatch})
 		if len(sessionIDs) == 0 {
 			return fmt.Errorf("no matchmaking session for user %s session: %s", session.UserID(), session.ID())
 		}

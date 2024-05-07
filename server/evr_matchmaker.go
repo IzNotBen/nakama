@@ -963,6 +963,7 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 		DiscordID:     discordID,
 		Query:         query,
 		ClientIP:      session.clientIP,
+		PartyID:       groupID,
 	}
 
 	// Marshal the player metadata into JSON.
