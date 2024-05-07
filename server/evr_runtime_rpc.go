@@ -13,8 +13,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gofrs/uuid/v5"
 	jwt "github.com/golang-jwt/jwt/v4"
+	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
+	"github.com/samber/lo"
 )
 
 const (
@@ -765,8 +767,42 @@ func (r *PrepareMatchRPCResponse) String() string {
 
 func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
 	return "NOT IMPLEMENTED", nil
+	isAuthoritative := false
+
 	// Get the UserID from the context
-	userID := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+	userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+	if !ok {
+		// server-to-server
+	} else {
+
+		userGroupMap := make(map[string]*api.UserGroupList_UserGroup)
+		// Get the user's group list
+		gl, _, err := nk.UserGroupsList(ctx, userID, 200, nil, "")
+		if err != nil {
+			return "", runtime.NewError("Failed to list user groups", StatusInternalError)
+		}
+
+		for _, group := range gl {
+			userGroupMap[group.Group.Id] = group
+		}
+
+		adminGroups := []string{
+			GroupGlobalDevelopers,
+			GroupGlobalAdminBots,
+			GroupGlobalBots,
+		}
+
+		for _, group := range adminGroups {
+			if _, ok := userGroupMap[group]; ok {
+				isAuthoritative = true
+				break
+			}
+		}
+	}
+
+	if !isAuthoritative {
+		return "", runtime.NewError("Unauthorized", StatusPermissionDenied)
+	}
 
 	request := &PrepareMatchRPCRequest{}
 	if err := json.Unmarshal([]byte(payload), request); err != nil {
@@ -839,4 +875,180 @@ func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk 
 
 	data, _ := json.MarshalIndent(response, "", "  ")
 	return string(data), nil
+}
+
+type KickPlayerRPCRequest struct {
+	MatchID   string    `json:"match_id"`
+	SessionID string    `json:"session_id"`
+	UserID    string    `json:"user_id"`
+	Username  string    `json:"username"`
+	EvrID     evr.EvrId `json:"evr_id"`
+}
+
+type KickPlayerRPCResponse struct {
+	Presences []runtime.Presence `json:"presences"`
+}
+
+func (r KickPlayerRPCResponse) String() string {
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func NewKickPlayerRPCResponse() *KickPlayerRPCResponse {
+	return &KickPlayerRPCResponse{
+		Presences: make([]runtime.Presence, 0),
+	}
+}
+
+func KickPlayerRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+	request := &KickPlayerRPCRequest{}
+	if err := json.Unmarshal([]byte(payload), request); err != nil {
+		return "", err
+	}
+
+	response := NewKickPlayerRPCResponse()
+
+	isAuthoritative := true
+
+	node := ctx.Value(runtime.RUNTIME_CTX_NODE).(string)
+	userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+
+	// This is a user calling the RPC, check if they have the right permissions
+	userGroupMap := make(map[string]*api.UserGroupList_UserGroup)
+
+	if ok { // This is a user
+		isAuthoritative = false
+
+		// Get the user's group list
+		gl, _, err := nk.UserGroupsList(ctx, userID, 200, nil, "")
+		if err != nil {
+			return "", runtime.NewError("Failed to list user groups", StatusInternalError)
+		}
+
+		for _, group := range gl {
+			userGroupMap[group.Group.Id] = group
+		}
+
+		adminGroups := []string{
+			GroupGlobalDevelopers,
+			GroupGlobalModerators,
+			GroupGlobalAdminBots,
+		}
+
+		for _, group := range adminGroups {
+			if _, ok := userGroupMap[group]; ok {
+				isAuthoritative = true
+				break
+			}
+		}
+	}
+
+	if request.MatchID != "" {
+
+		// Check if this user is allowed to kick players from this match
+		label, err := MatchLabelByID(ctx, nk, request.MatchID)
+		if err != nil {
+			return "", runtime.NewError("Failed to get match label", StatusInternalError)
+		}
+
+		if label == nil {
+			return "", runtime.NewError("Match not found", StatusNotFound)
+		}
+
+		if label.SpawnedBy == userID || userGroupMap[label.Channel.String()].GetState().GetValue() <= int32(api.GroupUserList_GroupUser_ADMIN) {
+			isAuthoritative = true
+		}
+
+		if !isAuthoritative {
+			return "", runtime.NewError("Unauthorized", StatusPermissionDenied)
+		}
+
+		// Handle EvrID kick separately
+		evrSessionIDs := make([]string, 0)
+		if request.EvrID.IsNotNil() {
+			evrPresences, err := nk.StreamUserList(StreamModeEvr, request.EvrID.UUID().String(), StreamContextMatch.String(), node, true, true)
+			if err != nil {
+				return "", runtime.NewError("Failed to list presences", StatusInternalError)
+			}
+
+			if len(evrPresences) == 0 {
+				return "", runtime.NewError("No EVR-ID presences found", StatusNotFound)
+			}
+
+			for _, p := range evrPresences {
+				evrSessionIDs = append(evrSessionIDs, p.GetSessionId())
+			}
+		}
+
+		// Get the presences in the match
+		presences, err := nk.StreamUserList(StreamModeMatchAuthoritative, request.MatchID, "", node, true, true)
+
+		if err != nil {
+			return "", runtime.NewError("Failed to list presences", StatusInternalError)
+		}
+
+		for _, p := range presences {
+
+			switch {
+			case request.EvrID.IsNotNil() && lo.Contains(evrSessionIDs, p.GetSessionId()):
+			case request.SessionID != "" && p.GetSessionId() == request.SessionID:
+			case request.UserID != "" && p.GetUserId() == request.UserID:
+			case request.Username != "" && p.GetUsername() == request.Username:
+			default:
+				continue
+			}
+
+			err := nk.StreamUserKick(StreamModeMatchAuthoritative, request.MatchID, "", p.GetNodeId(), p)
+			if err != nil {
+				return "", runtime.NewError("Failed to kick player", StatusInternalError)
+			}
+			response.Presences = append(response.Presences, p)
+		}
+
+		return response.String(), nil
+	}
+
+	// Global Kick
+	if !isAuthoritative {
+		return "", runtime.NewError("Unauthorized", StatusPermissionDenied)
+	}
+
+	// Kick by Username
+	if request.Username != "" {
+		userIds, err := nk.UsersGetUsername(ctx, []string{request.Username})
+		if err != nil {
+			return "", runtime.NewError("Failed to get user ID", StatusInternalError)
+		}
+
+		if len(userIds) == 0 {
+			return "", runtime.NewError("User not found", StatusNotFound)
+		}
+		request.UserID = userIds[0].Id
+	}
+
+	subject := ""
+	switch {
+	case request.SessionID != "":
+		subject = request.SessionID
+	case request.EvrID.IsNotNil():
+		subject = request.EvrID.UUID().String()
+	case request.UserID != "":
+		subject = request.UserID
+	}
+
+	presences, err := nk.StreamUserList(StreamModeEvr, subject, StreamContextMatch.String(), node, true, true)
+	if err != nil {
+		return "", runtime.NewError("Failed to list presences", StatusInternalError)
+	}
+	for _, p := range presences {
+		err := nk.StreamUserKick(StreamModeEvr, request.SessionID, StreamContextMatch.String(), p.GetNodeId(), p)
+		if err != nil {
+			return "", runtime.NewError("Failed to kick player", StatusInternalError)
+		}
+		response.Presences = append(response.Presences, p)
+	}
+	return response.String(), nil
 }

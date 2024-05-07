@@ -913,12 +913,12 @@ func (d *DiscordAppBot) RegisterSlashCommands() error {
 								},
 								{
 									Name:   "cached?",
-									Value:  strconv.FormatBool(lo.Contains(lo.Keys(evr.SymbolCache), uint64(evr.Symbol(symbol)))),
+									Value:  strconv.FormatBool(lo.Contains(lo.Keys(evr.CoreSymbols), uint64(evr.Symbol(symbol)))),
 									Inline: false,
 								},
 								{
 									Name:   "LE bytes",
-									Value:  fmt.Sprintf("%#v", bytes),
+									Value:  fmt.Sprintf("%#2v", bytes),
 									Inline: false,
 								},
 							},
