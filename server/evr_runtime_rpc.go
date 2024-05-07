@@ -831,16 +831,6 @@ func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk 
 		return "", fmt.Errorf("invalid mode: %v", request.Mode)
 	}
 
-	// Set the session settings
-
-	signal := SignalPrepareSession{
-		State: state,
-	}
-	signalPayload, err := json.Marshal(signal)
-	if err != nil {
-		return "", err
-	}
-
 	errResponse := func(err error) (string, error) {
 		response.Success = false
 		response.Message = err.Error()
@@ -848,8 +838,15 @@ func PrepareMatchRPC(ctx context.Context, logger runtime.Logger, db *sql.DB, nk 
 		return string(data), err
 	}
 
+	// Set the session settings
+	signal := SignalPrepareSession{
+		State: state,
+	}
+
+	signalPayload := NewSignalData(signal)
+
 	// Send the signal
-	signalResponse, err := nk.MatchSignal(ctx, matchToken.String(), string(signalPayload))
+	signalResponse, err := nk.MatchSignal(ctx, matchToken.String(), signalPayload.String())
 	if err != nil {
 		return errResponse(err)
 	}
