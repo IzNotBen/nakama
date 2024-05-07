@@ -57,7 +57,15 @@ func generateSymbolSeed() [0x100]uint64 {
 var symbolSeed [0x100]uint64 = generateSymbolSeed()
 
 var CoreSymbols = map[uint64]SymbolToken{
-	0x0000000000000000: "",                                   // Default
+	0x0000000000000000: "",             // Default/empty
+	0xc8c33e482f601dbe: "uscn",         // US Central North (Chicago)
+	0xf1e60114d33c122a: "us-central-2", // US Central South (Texas)
+	0xf1e60114d33c122b: "us-central-3",
+	0xc8e8d0b1a885f1ef: "use",                                // US East (Virgina)
+	0xc8e8d0b1a885f1fd: "usw",                                // US East (California
+	0xc8e8d0b1a895f7fd: "euw",                                // EU West
+	0x313d0759bc6b863a: "jp",                                 // Japan
+	0xc8e8d0b1a883ebe4: "sin",                                // Signapore
 	0x8d5ad3c4f2166c6c: "SNSFindServerRegionInfo",            // Custom?
 	0xb57a31cdd0f6fedf: "SNSLobbyRegistrationSuccess",        // Custom
 	0xff71856af7e0fbd9: "ERLobbyPlayerSessionsSuccessUnk1",   // Custom
