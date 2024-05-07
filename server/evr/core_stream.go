@@ -311,6 +311,14 @@ func (s *EasyStream) Reset() {
 	}
 }
 
+func (s *EasyStream) Skip(count int) error {
+	if s.Mode == DecodeMode {
+		_, err := s.r.Seek(int64(count), io.SeekCurrent)
+		return err
+	}
+	return nil
+}
+
 type Serializable interface {
 	Stream(s *EasyStream) error
 }

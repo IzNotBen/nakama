@@ -13,21 +13,13 @@ type LoginRequest interface {
 	GetLoginProfile() LoginProfile
 }
 
-type LoginProfile interface {
-	GetHeadsetType() string
-	GetHMDSerialNumber() string
-	GetPublisherLock() string
-	GetLobbyVersion() uint64
-	GetAppID() uint64
-}
-
 var _ = LoginRequest(&LoginRequestV2{})
 
 // LoginRequestV2 represents a message from client to server requesting for a user sign-in.
 type LoginRequestV2 struct {
-	Session uuid.UUID      `json:"Session"` // This is the old session id, if it had one.
-	EvrId   EvrId          `json:"UserId"`
-	Profile LoginProfileV2 `json:"LoginData"`
+	Session uuid.UUID    `json:"Session"` // This is the old session id, if it had one.
+	EvrId   EvrId        `json:"UserId"`
+	Profile LoginProfile `json:"LoginData"`
 }
 
 func (lr LoginRequestV2) GetEvrID() EvrId {
@@ -55,7 +47,7 @@ func (m *LoginRequestV2) Stream(s *EasyStream) error {
 	})
 }
 
-func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfileV2) (*LoginRequestV2, error) {
+func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfile) (*LoginRequestV2, error) {
 	return &LoginRequestV2{
 		Session: session,
 		EvrId:   userId,
@@ -63,9 +55,7 @@ func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfileV2) 
 	}, nil
 }
 
-var _ = LoginProfile(LoginProfileV2{})
-
-type LoginProfileV2 struct {
+type LoginProfile struct {
 	// WARNING: EchoVR dictates this schema.
 	AccountId                   uint64     `json:"accountid"`
 	DisplayName                 string     `json:"displayname"`
@@ -81,28 +71,28 @@ type LoginProfileV2 struct {
 	SystemInfo                  SystemInfo `json:"system_info"`
 }
 
-func (ld *LoginProfileV2) String() string {
+func (ld *LoginProfile) String() string {
 	return fmt.Sprintf("%s(account_id=%d, display_name=%s, hmd_serial_number=%s, "+
 		")", "LoginData", ld.AccountId, ld.DisplayName, ld.HmdSerialNumber)
 }
 
-func (p LoginProfileV2) GetHeadsetType() string {
+func (p LoginProfile) GetHeadsetType() string {
 	return p.SystemInfo.HeadsetType
 }
 
-func (p LoginProfileV2) GetPublisherLock() string {
+func (p LoginProfile) GetPublisherLock() string {
 	return p.PublisherLock
 }
 
-func (p LoginProfileV2) GetLobbyVersion() uint64 {
+func (p LoginProfile) GetLobbyVersion() uint64 {
 	return p.LobbyVersion
 }
 
-func (p LoginProfileV2) GetAppID() uint64 {
+func (p LoginProfile) GetAppID() uint64 {
 	return p.AppId
 }
 
-func (p LoginProfileV2) GetHMDSerialNumber() string {
+func (p LoginProfile) GetHMDSerialNumber() string {
 	return p.HmdSerialNumber
 }
 

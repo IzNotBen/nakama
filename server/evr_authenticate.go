@@ -119,12 +119,12 @@ type LinkTicket struct {
 	// NOTE: The UserIDToken has an index that is created in the InitModule function
 	UserIDToken string `json:"evrid_token"` // the xplatform ID used by EchoVR as a UserID
 
-	LoginRequest *evr.LoginProfile `json:"game_login_request"` // the login request payload that generated this link ticket
+	LoginRequestJSON string `json:"game_login_request"` // the login request payload that generated this link ticket
 }
 
 // TODO Move this to the evrbackend runtime module
 // linkTicket generates a link ticket for the provided xplatformId and hmdSerialNumber.
-func (p *EvrPipeline) linkTicket(session *sessionWS, deviceId DeviceId, loginData *evr.LoginProfile) (*LinkTicket, error) {
+func (p *EvrPipeline) linkTicket(session *sessionWS, deviceId DeviceId, loginData evr.LoginProfile) (*LinkTicket, error) {
 	ctx := session.Context()
 
 	// Check if a link ticket already exists for the provided xplatformId and hmdSerialNumber
@@ -136,7 +136,7 @@ func (p *EvrPipeline) linkTicket(session *sessionWS, deviceId DeviceId, loginDat
 	if objectIds != nil {
 		for _, record := range objectIds.Objects {
 			linkTicket := &LinkTicket{}
-			err := json.Unmarshal([]byte(record.Value), &linkTicket)
+			err := json.Unmarshal([]byte(record.Value), linkTicket)
 			if err != nil {
 				return nil, fmt.Errorf(fmt.Sprintf("error unmarshalling link ticket: %v", err))
 			} else {
@@ -144,18 +144,20 @@ func (p *EvrPipeline) linkTicket(session *sessionWS, deviceId DeviceId, loginDat
 			}
 		}
 	}
-	if loginData == nil {
-		// This should't happen. A login request is required to create a link ticket.
-		return nil, fmt.Errorf("loginData is nil")
+
+	payload, err := json.Marshal(loginData)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling loginData: %v", err)
 	}
+
 	// Generate a link code and attempt to write it to storage
 	for {
 		// loop until we have a unique link code
 		linkTicket := &LinkTicket{
-			Code:            generateLinkCode(),
-			DeviceAuthToken: deviceId.Token(),
-			UserIDToken:     deviceId.EvrId.String(),
-			LoginRequest:    loginData,
+			Code:             generateLinkCode(),
+			DeviceAuthToken:  deviceId.Token(),
+			UserIDToken:      deviceId.EvrId.String(),
+			LoginRequestJSON: string(payload),
 		}
 		linkTicketJson, err := json.Marshal(linkTicket)
 		if err != nil {
@@ -291,7 +293,7 @@ func ExchangeLinkCode(ctx context.Context, nk runtime.NakamaModule, logger runti
 	}
 
 	// Parse the link ticket.
-	var linkTicket LinkTicket
+	linkTicket := LinkTicket{}
 	if err := json.Unmarshal([]byte(objects[0].Value), &linkTicket); err != nil {
 		return "", runtime.NewError("failed to unmarshal link ticket", StatusInternalError)
 	}

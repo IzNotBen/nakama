@@ -1,7 +1,7 @@
 package evr
 
 type LoginSettings struct {
-	LoginSettings EchoClientSettings `json:"Resource"`
+	LoginSettings GameClientSettings `json:"Resource"`
 }
 
 func (m LoginSettings) Token() string {
@@ -16,7 +16,7 @@ func (m LoginSettings) String() string {
 	return "SNSLoginSettings{...}"
 }
 
-func NewSNSLoginSettings(settings EchoClientSettings) *LoginSettings {
+func NewSNSLoginSettings(settings GameClientSettings) *LoginSettings {
 	return &LoginSettings{
 		LoginSettings: settings,
 	}
@@ -30,7 +30,7 @@ func (m *LoginSettings) Stream(s *EasyStream) error {
 
 // Represents the settings for an EchoVR client.
 // This is the data that is sent to the client right after it's been authenticated.
-type EchoClientSettings struct {
+type GameClientSettings struct {
 	// WARNING: EchoVR dictates this schema.
 	ConfigData          ConfigData `json:"config_data"`           // ConfigData is a map that stores configuration data for the EchoVR client.
 	Env                 string     `json:"env"`                   // Env represents the environment in which the EchoVR client is running.
@@ -59,7 +59,7 @@ const (
 )
 
 var (
-	DefaultGameSettingsSettings = EchoClientSettings{
+	DefaultGameClientSettings = GameClientSettings{
 		IapUnlocked:           true,
 		RemoteLogSocial:       false,
 		RemoteLogWarnings:     false,
