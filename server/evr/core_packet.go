@@ -96,6 +96,18 @@ var (
 
 type Symbol uint64
 
+func (s Symbol) IsNil() bool {
+	return s == 0xffffffffffffffff || s == 0
+}
+
+func (s Symbol) IsZero() bool {
+	return s == 0
+}
+
+func (s Symbol) IsNotNil() bool {
+	return s != 0xffffffffffffffff && s != 0
+}
+
 // A symbol token is a symbol converted to a string.
 // It either uses the cache to convert back to a string,
 // or returns the hex string representation of the token.
