@@ -1007,6 +1007,12 @@ func (p *EvrPipeline) lobbyJoinSessionRequest(ctx context.Context, logger *zap.L
 		return response.SendErrorToSession(status.Errorf(codes.NotFound, "Match not found"))
 	}
 
+	groups, err := p.discordRegistry.GetGuildGroups(ctx, session.userID)
+	if err != nil {
+		return response.SendErrorToSession(status.Errorf(codes.Internal, "Failed to get guild groups: %v", err))
+	}
+	groupIDs := lo.Map(groups, func(group *api.Group, _ int) uuid.UUID { return uuid.FromStringOrNil(group.Id) })
+
 	// Extract the label
 	ml := &EvrMatchState{}
 	if err := json.Unmarshal([]byte(match.GetLabel().GetValue()), ml); err != nil {
