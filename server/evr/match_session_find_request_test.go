@@ -5,7 +5,6 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/google/go-cmp/cmp"
-	"github.com/samber/lo"
 )
 
 func TestLobbyFindSessionRequest_Unmarshal(t *testing.T) {
@@ -46,19 +45,26 @@ func TestLobbyFindSessionRequest_Unmarshal(t *testing.T) {
 	}
 
 	want := LobbyFindSessionRequest{
-		VersionLock:    0xc62f01d78f77910d,
-		Mode:           ModeArenaPublic,
-		Level:          0xffffffffffffffff,
-		Platform:       ToSymbol("DMO"),
-		LoginSessionID: uuid.Must(uuid.FromString("0a223cf0-8b73-3dfa-2ee8-7774c3b28097")),
-		Unk1:           769,
+		VersionLock:      0xc62f01d78f77910d,
+		Mode:             ModeArenaPublic,
+		Level:            0xffffffffffffffff,
+		Platform:         ToSymbol("DMO"),
+		CrossPlayEnabled: true,
+		LoginSessionID:   uuid.Must(uuid.FromString("0a223cf0-8b73-3dfa-2ee8-7774c3b28097")),
 		SessionSettings: SessionSettings{
 			AppID: "1369078409873402",
 			Mode:  -3791849610740453517,
 			Level: nil,
 		},
-		EvrId:     *lo.Must(ParseEvrId("DMO-8582873777389537089")),
-		TeamIndex: 2,
+		Entrants: []Entrant{
+			{
+				EvrID: EvrId{
+					PlatformCode: DMO,
+					AccountId:    8582873777389537089,
+				},
+				TeamIndex: 2,
+			},
+		},
 	}
 
 	if cmp.Equal(got, want) {
@@ -110,14 +116,12 @@ func TestLobbyFindSessionRequest_Unpack(t *testing.T) {
 		Level:          0xffffffffffffffff,
 		Platform:       ToSymbol("DMO"),
 		LoginSessionID: uuid.Must(uuid.FromString("0a223cf0-8b73-3dfa-2ee8-7774c3b28097")),
-		Unk1:           769,
+
 		SessionSettings: SessionSettings{
 			AppID: "1369078409873402",
 			Mode:  -3791849610740453517,
 			Level: nil,
 		},
-		EvrId:     *lo.Must(ParseEvrId("DMO-8582873777389537089")),
-		TeamIndex: 4,
 	}
 
 	if cmp.Equal(got, want) {
