@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -31,77 +29,68 @@ const (
 
 	StatGroupArena  MatchStatGroup = "arena"
 	StatGroupCombat MatchStatGroup = "combat"
-)
 
+	SignalCodePrepareSession = iota
+	SignalCodeGetEndpoint
+	SignalCodeGetPresences
+	SignalCodePruneUnderutilized
+	SignalCodeTerminateMatch
+)
 const (
 	OpCodeBroadcasterDisconnected int64 = iota
 	OpCodeEvrPacketData
-
-	SignalPrepareSession
-	SignalStartSession
-	SignalGetEndpoint
-	SignalGetPresences
-	SignalPruneUnderutilized
-	SignalTerminate
 )
 
-var (
-	displayNameRegex   = regexp.MustCompile(`"displayname": "(\\"|[^"])*"`)
-	updatetimeRegex    = regexp.MustCompile(`"updatetime": \d*`)
-	StreamContextMatch = uuid.NewV5(uuid.Nil, "match")
-)
+type EvrMatchSignal interface {
+	GetOpCode() int64
+}
 
-type MatchStatGroup string
-type MatchLevelSelection string
+type SignalData struct {
+	OpCode  int64
+	Payload []byte
+}
 
-/*
-		func NewMatchParams(logger *zap.Logger, session *sessionWS, serverId uint64, internalAddress net.IP, externalAddress net.IP, port uint16, regionSymbol uint64, versionLock uint64, public bool, open bool) (uuid.UUID, error) {
-
-			matchId, err := r.runtimeModule.MatchCreate(ctx, EvrMatchModule, params)
-			if err != nil {
-				return "", fmt.Errorf("failed to create new lobby: %v", err)
-			}
-
-
-		// The actual matches "live" in a separate runtime.
-		// We use the rpc to create the match in the other runtime.
-
-			rpcFn := session.pipeline.runtime.Rpc("create_match_rpc")
-
-			paramsJson, err := json.Marshal(params)
-			if err != nil {
-				return uuid.Nil, fmt.Errorf("failed to create new lobby: %v", err)
-			}
-
-			matchNode, err, _ := rpcFn(session.Context(), nil, nil, uuid.Nil.String(), "", nil, session.Expiry(), session.ID().String(), session.clientIP, session.clientPort, "", string(paramsJson))
-			if err != nil {
-				return uuid.Nil, fmt.Errorf("failed to create new lobby: %v", err)
-			}
-
-		matchNode, err := r.matchRegistry.CreateMatch(context.Background(), r.runtime.matchCreateFunction, "match", params)
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("failed to create new lobby: %v", err)
-		}
-		logger.Debug("Created new lobby.", zap.String("result", matchNode))
-
-		s := strings.Split(matchNode, ".")
-		matchId, _ := s[0], s[1]
-		return uuid.FromStringOrNil(matchId), nil
+func NewSignalData(signal EvrMatchSignal) SignalData {
+	payload, err := json.Marshal(signal)
+	if err != nil {
+		return SignalData{}
 	}
-*/
+
+	return SignalData{
+		OpCode:  signal.GetOpCode(),
+		Payload: payload,
+	}
+}
+
+func (s SignalData) String() string {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func (s SignalData) GetOpCode() int64 {
+	return s.OpCode
+}
 
 type SignalPrepareSession struct {
 	State EvrMatchState
 	Start bool
 }
 
-type SignalGetEndpoint struct{}
+func (s SignalPrepareSession) GetOpCode() int64 {
+	return SignalCodePrepareSession
+}
 
-type SignalGetPresences struct{}
+type SignalTerminateMatch struct{}
 
-type SignalPruneUnderutilized struct{}
+func (s SignalTerminateMatch) GetOpCode() int64 {
+	return SignalCodeTerminateMatch
+}
 
-type SignalTerminate struct{}
+type MatchStatGroup string
+type MatchLevelSelection string
 
 const (
 	EvrMatchmakerModule = "evrmatchmaker"
@@ -183,6 +172,7 @@ type EvrMatchMeta struct {
 }
 type PlayerInfo struct {
 	UserID      string    `json:"user_id,omitempty"`
+	SessionID   string    `json:"session_id,omitempty"`
 	Username    string    `json:"username,omitempty"`
 	DisplayName string    `json:"display_name,omitempty"`
 	EvrID       evr.EvrId `json:"evr_id,omitempty"`
@@ -229,11 +219,12 @@ type EvrMatchState struct {
 	SessionSettings  *evr.SessionSettings `json:"session_settings,omitempty"`  // The session settings for the match (EVR).
 	RequiredFeatures []string             `json:"required_features,omitempty"` // The required features for the match.
 
-	MaxSize     uint8     `json:"limit,omitempty"`     // The total lobby size limit (players + specs)
-	Size        int       `json:"size"`                // The number of players (including spectators) in the match.
-	PlayerLimit int       `json:"player_limit"`        // The number of players in the match (not including spectators).
-	TeamSize    int       `json:"team_size,omitempty"` // The size of each team in arena/combat (either 4 or 5)
-	TeamIndex   TeamIndex `json:"team,omitempty"`      // What team index a player prefers (Used by Matching only)
+	Size           int       `json:"size,omitempty"`             // The total lobby size limit (players + specs)
+	MaxSize        int       `json:"max_size,omitempty"`         // The total lobby size limit (players + specs)
+	PlayerCount    int       `json:"player_count,omitempty"`     // The number of players (not including spectators) in the match.
+	MaxPlayerCount int       `json:"max_player_count,omitempty"` // The maximum number of players (not including spectators) in the match.
+	TeamSize       int       `json:"team_size,omitempty"`        // The size of each team in arena/combat (either 4 or 5)
+	TeamIndex      TeamIndex `json:"team,omitempty"`             // What team index a player prefers (Used by Matching only)
 
 	Players        []PlayerInfo                    `json:"players,omitempty"` // The displayNames of the players (by team name) in the match.
 	teamAlignments map[evr.EvrId]int               // [evrID]TeamIndex
@@ -278,11 +269,17 @@ func (s *EvrMatchState) rebuildCache() {
 	// Rebuild the lookup tables.
 
 	s.Players = make([]PlayerInfo, 0, len(s.presences))
+	s.EvrIDs = make([]evr.EvrId, 0, len(s.presences))
+	s.UserIDs = make([]string, 0, len(s.presences))
+	s.PlayerCount = 0
 	s.Size = len(s.presences)
 
 	// Construct Player list
 	for _, presence := range s.presences {
 		// Do not include spectators or moderators in player count
+		if presence.TeamIndex != evr.TeamSpectator && presence.TeamIndex != evr.TeamModerator {
+			s.PlayerCount += 1
+		}
 
 		playerinfo := PlayerInfo{
 			UserID:      presence.UserID.String(),
@@ -293,6 +290,7 @@ func (s *EvrMatchState) rebuildCache() {
 			ClientIP:    presence.ClientIP,
 			DiscordID:   presence.DiscordID,
 			PartyID:     presence.PartyID.String(),
+			SessionID:   presence.SessionID.String(),
 		}
 
 		s.Players = append(s.Players, playerinfo)
@@ -301,6 +299,24 @@ func (s *EvrMatchState) rebuildCache() {
 	sort.SliceStable(s.Players, func(i, j int) bool {
 		return s.Players[i].Team < s.Players[j].Team
 	})
+}
+
+func MatchLabelByID(ctx context.Context, nk runtime.NakamaModule, matchID string) (*EvrMatchState, error) {
+
+	match, err := nk.MatchGet(ctx, matchID)
+	if err != nil {
+		return nil, err
+	}
+
+	if match == nil {
+		return nil, errors.New("match not found")
+	}
+
+	matchState, err := MatchStateFromLabel(match.GetLabel().GetValue())
+	if err != nil {
+		return nil, err
+	}
+	return matchState, nil
 }
 
 // The match config is used internally to create a new match.
@@ -649,7 +665,7 @@ func (m *EvrMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 			return errors.New("player not in cache")
 		}
 		// Update the player's status to include the match ID
-		if err := nk.StreamUserUpdate(StreamModeEvr, p.GetUserId(), svcMatchContext.String(), "", p.GetUserId(), p.GetSessionId(), false, false, state.ID()); err != nil {
+		if err := nk.StreamUserUpdate(StreamModeEvr, p.GetUserId(), StreamContextMatch.String(), "", p.GetUserId(), p.GetSessionId(), false, false, state.ID()); err != nil {
 			logger.Warn("Failed to update user status: %v", err)
 		}
 
@@ -744,12 +760,10 @@ func (m *EvrMatch) MatchLeave(ctx context.Context, logger runtime.Logger, db *sq
 			continue
 		}
 		delete(state.presences, sessionID)
-
-		if _, err := nk.StreamUserGet(StreamModeEvr, p.GetUserId(), StreamContextMatch.String(), "", p.GetUserId(), p.GetSessionId()); err != nil {
-			continue
-		}
-		if err := nk.StreamUserUpdate(StreamModeEvr, p.GetUserId(), StreamContextMatch.String(), "", p.GetUserId(), p.GetSessionId(), false, false, ""); err != nil {
-			logger.Debug("Failed to update user status for %v: %v", p, err)
+		// Update the player's status to remove the match ID
+		err := nk.StreamUserUpdate(StreamModeEvr, p.GetUserId(), StreamContextMatch.String(), "", p.GetUserId(), p.GetSessionId(), false, false, "")
+		if err != nil {
+			logger.Warn("Failed to update user status for %v: %v", p, err)
 		}
 	}
 	// Delete the each user from the match.
@@ -804,7 +818,7 @@ func (m *EvrMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sql
 	if int(tick)%(30*state.tickRate) == 0 {
 
 		// If the match was started more than 60 seconds ago, and there are no players, shut down the match.
-		if state.StartedAt.Before(time.Now().Add(-60*time.Second)) && state.LobbyType != UnassignedLobby && len(state.presences) == 0 {
+		if state.Started && state.StartedAt.Before(time.Now().Add(-60*time.Second)) && state.LobbyType != UnassignedLobby && len(state.presences) == 0 {
 			// If the match is not a parking match, and there are no players, shut down the match.
 			logger.Error("Match is empty. Shutting down.")
 			return nil
@@ -910,30 +924,30 @@ func (m *EvrMatch) MatchSignal(ctx context.Context, logger runtime.Logger, db *s
 		return nil, "state not a valid lobby state object"
 	}
 
-	signal := interface{}(nil)
+	signal := SignalData{}
 	err := json.Unmarshal([]byte(data), &signal)
 	if err != nil {
 		return state, fmt.Sprintf("failed to unmarshal signal: %v", err)
 	}
 
-	switch signal := signal.(type) {
-	case SignalTerminate:
+	switch signal.OpCode {
+	case SignalCodeTerminateMatch:
 		return m.MatchTerminate(ctx, logger, db, nk, dispatcher, tick, state, 10), "terminating match"
 
-	case SignalPruneUnderutilized:
+	case SignalCodePruneUnderutilized:
 		// Prune this match if it's utilization is low.
 		if len(state.presences) <= 3 {
 			// Free the resources.
 			return nil, "pruned"
 		}
-	case SignalGetEndpoint:
+	case SignalCodeGetEndpoint:
 		jsonData, err := json.Marshal(state.Broadcaster.Endpoint)
 		if err != nil {
 			return state, fmt.Sprintf("failed to marshal endpoint: %v", err)
 		}
 		return state, string(jsonData)
 
-	case SignalGetPresences:
+	case SignalCodeGetPresences:
 		// Return the presences in the match.
 
 		jsonData, err := json.Marshal(state.presences)
@@ -942,17 +956,22 @@ func (m *EvrMatch) MatchSignal(ctx context.Context, logger runtime.Logger, db *s
 		}
 		return state, string(jsonData)
 
-	case SignalPrepareSession:
+	case SignalCodePrepareSession:
+		prepare := SignalPrepareSession{}
+		err := json.Unmarshal(signal.Payload, &prepare)
+		if err != nil {
+			return state, fmt.Sprintf("failed to unmarshal signal: %v", err)
+		}
 
 		// Prepare the session for the match.
 
 		// if the match is already started, return an error.
 		if state.LobbyType != UnassignedLobby {
-			logger.Error("Failed to start session: session already started")
+			logger.Error("Failed to prepare session: session already started")
 			return state, "session already started"
 		}
 
-		newState := signal.State
+		newState := prepare.State
 		matchId, _ := MatchIdFromContext(ctx)
 		state.Started = false
 		state.SpawnedBy = newState.SpawnedBy
@@ -983,10 +1002,17 @@ func (m *EvrMatch) MatchSignal(ctx context.Context, logger runtime.Logger, db *s
 			}
 		}
 
+		if state.Mode == evr.ModeSocialPrivate || state.Mode == evr.ModeSocialPublic {
+			state.MaxPlayerCount = state.MaxSize
+		} else {
+			state.MaxPlayerCount = state.TeamSize * 2
+		}
+
+		logger.WithField("state", state).Debug("Prepared session")
 		return state, ""
 
 	default:
-		logger.Warn("Unknown signal: %v", signal)
+		logger.Warn("Unknown signal: %s", signal)
 		return state, "unknown signal"
 	}
 	return state, ""
@@ -1019,13 +1045,10 @@ func (m *EvrMatch) StartSession(ctx context.Context, logger runtime.Logger, nk r
 }
 
 // SignalMatch is a helper function to send a signal to a match.
-func SignalMatch(ctx context.Context, matchRegistry MatchRegistry, matchId string, data interface{}) (string, error) {
-	signal, err := json.Marshal(data)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal match label: %v", err)
-	}
+func SignalMatch(ctx context.Context, matchRegistry MatchRegistry, matchId string, data EvrMatchSignal) (string, error) {
+	signalPayload := NewSignalData(data)
 
-	return matchRegistry.Signal(ctx, matchId, string(signal))
+	return matchRegistry.Signal(ctx, matchId, signalPayload.String())
 }
 
 func (m *EvrMatch) dispatchMessages(_ context.Context, logger runtime.Logger, dispatcher runtime.MatchDispatcher, messages []evr.Message, presences []runtime.Presence, sender runtime.Presence) error {
@@ -1196,24 +1219,6 @@ func (m *EvrMatch) broadcasterPlayerRemoved(ctx context.Context, logger runtime.
 
 	// Remove the player from the internal presences to avoid the handler sending a message to the player
 	return state, nil
-}
-
-func sendMessagesToStream(_ context.Context, nk runtime.NakamaModule, sessionId string, serviceId string, messages ...evr.Message) error {
-	data, err := evr.Marshal(messages...)
-	if err != nil {
-		return fmt.Errorf("failed to marshal message: %w", err)
-	}
-	presences, err := nk.StreamUserList(StreamModeEvr, sessionId, serviceId, "", true, true)
-	if err != nil {
-		return fmt.Errorf("failed to list users: %w", err)
-	}
-	for _, presence := range presences {
-		log.Printf("Sending message to %s on session ID %s", presence.GetUserId(), presence.GetSessionId())
-	}
-	if err := nk.StreamSend(StreamModeEvr, sessionId, serviceId, "", string(data), nil, true); err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
-	}
-	return nil
 }
 
 func (m *EvrMatch) broadcasterPlayerSessionsLocked(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, dispatcher runtime.MatchDispatcher, state *EvrMatchState, in runtime.MatchData, msg evr.Message) (*EvrMatchState, error) {
