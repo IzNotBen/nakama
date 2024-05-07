@@ -247,7 +247,7 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	profile, err := p.profileRegistry.GetSessionProfile(ctx, session, loginProfile, evrId)
 	if err != nil {
 		session.logger.Error("failed to load game profiles", zap.Error(err))
-		return evr.DefaultGameSettingsSettings, fmt.Errorf("failed to load game profiles")
+		return evr.DefaultGameClientSettings, fmt.Errorf("failed to load game profiles")
 	}
 
 	// Set the display name once.
@@ -261,7 +261,7 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	p.profileRegistry.Store(session.userID, profile)
 
 	// TODO Add the settings to the user profile
-	settings = evr.DefaultGameSettingsSettings
+	settings = evr.DefaultGameClientSettings
 	return settings, nil
 
 }
@@ -296,7 +296,7 @@ func (p *EvrPipeline) checkEvrIDOwner(ctx context.Context, evrId evr.EvrId) ([]E
 
 	return history, nil
 }
-func (p *EvrPipeline) authenticateAccount(ctx context.Context, logger *zap.Logger, session *sessionWS, deviceId *DeviceId, discordId string, userPassword string, payload evr.LoginProfile) (*api.Account, error) {
+func (p *EvrPipeline) authenticateAccount(ctx context.Context, session *sessionWS, deviceId DeviceId, discordId string, userPassword string, payload evr.LoginProfile) (*api.Account, error) {
 	var err error
 	var userId string
 	var account *api.Account
@@ -365,7 +365,7 @@ func (p *EvrPipeline) authenticateAccount(ctx context.Context, logger *zap.Logge
 	}
 
 	// Account requires discord linking.
-	linkTicket, err := p.linkTicket(session, logger, deviceId, &payload)
+	linkTicket, err := p.linkTicket(session, deviceId, payload)
 	if err != nil {
 		return account, status.Error(codes.Internal, fmt.Errorf("error creating link ticket: %w", err).Error())
 	}

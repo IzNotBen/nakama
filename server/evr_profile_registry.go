@@ -284,7 +284,7 @@ func (r *ProfileRegistry) Load(userID uuid.UUID, evrID evr.EvrId) (profile GameP
 					Client: evr.NewClientProfile(),
 					Server: evr.NewServerProfile(),
 				}
-				err := r.save(ctx, uuid.Nil, &profile)
+				err := r.save(ctx, uuid.Nil, profile)
 				if err != nil {
 					r.logger.Warn("failed to save default profile: %s", err.Error())
 				}
@@ -319,7 +319,7 @@ func (r *ProfileRegistry) Save(userID uuid.UUID) {
 		r.logger.Warn("Profile not in store for %s, it must have already been saved", userID.String())
 	}
 
-	r.save(context.Background(), userID, &profile)
+	r.save(context.Background(), userID, profile)
 }
 
 // Retrieve the user's profile from storage
@@ -337,12 +337,12 @@ func (r *ProfileRegistry) retrieve(ctx context.Context, userID uuid.UUID) (profi
 		return profile, ErrProfileNotFound
 	}
 	if err = json.Unmarshal([]byte(objs[0].Value), &profile); err != nil {
-		return
+		return profile, fmt.Errorf("error unmarshalling game profile: %w", err)
 	}
 
 	return
 }
-func (r *ProfileRegistry) save(ctx context.Context, userID uuid.UUID, profile GameProfile) error {
+func (r *ProfileRegistry) save(ctx context.Context, userID uuid.UUID, profile GameProfileData) error {
 
 	b, err := json.Marshal(profile)
 	if err != nil {
