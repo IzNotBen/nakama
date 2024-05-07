@@ -96,15 +96,10 @@ func (p *GameProfileData) UpdateDisplayName(displayName string) {
 }
 
 func (p *GameProfileData) DisableAFKTimeout(enable bool) {
-	if enable {
-		if p.Server.DeveloperFeatures == nil {
-			p.Server.DeveloperFeatures = &evr.DeveloperFeatures{
-				DisableAfkTimeout: true,
-			}
-		}
-	} else {
-		p.Server.DeveloperFeatures = nil
+	if p.Server.DeveloperFeatures == nil {
+		p.Server.DeveloperFeatures = &evr.DeveloperFeatures{}
 	}
+	p.Server.DeveloperFeatures.DisableAfkTimeout = enable
 }
 
 func (r *GameProfileData) UpdateUnlocks(unlocks evr.UnlockedCosmetics) error {
@@ -558,7 +553,9 @@ func (r *ProfileRegistry) UpdateEntitledCosmetics(ctx context.Context, userID uu
 	if err != nil {
 		return fmt.Errorf("failed to disable restricted cosmetics: %w", err)
 	}
-
+	if isDeveloper {
+		profile.DisableAFKTimeout(true)
+	}
 	// Set the user's unlocked cosmetics based on their groups
 	unlocked := profile.Server.UnlockedCosmetics
 	arena := &unlocked.Arena
