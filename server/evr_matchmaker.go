@@ -821,8 +821,14 @@ func (p *EvrPipeline) MatchCreate(ctx context.Context, session *sessionWS, msess
 	p.matchmakingRegistry.Lock()
 	defer p.matchmakingRegistry.Unlock()
 	// TODO Move this into the matchmaking registry
+	ml := msession.Label
+
+	channels := ml.Broadcaster.Channels
+	region := ml.Broadcaster.Region
+	queryAddon := msession.GlobalSettings.CreateQueryAddon + " " + msession.UserSettings.CreateQueryAddon
+
 	// Create a new match
-	matches, err := p.ListUnassignedLobbies(ctx, session, label)
+	matches, err := p.matchmakingRegistry.ListUnassignedLobbies(ctx, channels, region, queryAddon)
 	if err != nil {
 		return "", err
 	}
