@@ -637,7 +637,7 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 		// This is in a go function because there are timers that need to be waited on
 		// Get the user into a match first (the matchID will be nil)
 
-		if msession.Party != nil && !msession.Party.ID.IsNil() && ml.MatchID != uuid.Nil {
+		if msession.Party != nil && !msession.Party.ID.IsNil() && ml.MatchID != uuid.Nil && msession.Party.leader != nil {
 			ph := msession.Party
 			ph.RLock()
 			leader := ph.leader.UserPresence
