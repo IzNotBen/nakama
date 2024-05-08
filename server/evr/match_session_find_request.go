@@ -121,12 +121,6 @@ func (m LobbyFindSessionRequest) String() string {
 	return fmt.Sprintf("LobbyFindSessionRequest{VersionLock: %d, Mode: %d, Level: %d, Platform: %d, LoginSessionID: %s, CrossPlayEnabled: %t, CurrentMatch: %s, Channel: %s, SessionSettings: %v, Entrants: %v}", m.VersionLock, m.Mode, m.Level, m.Platform, m.LoginSessionID, m.CrossPlayEnabled, m.CurrentMatch, m.Channel, m.SessionSettings, m.Entrants)
 }
 
-type Flags struct {
-	PlayersInParty   [8]byte
-	HasTeams         bool // 1 bit
-	CrossPlayEnabled bool // 1 bit
-}
-
 func NewFindSessionRequest(versionLock uint64, mode Symbol, level Symbol, platform Symbol, loginSessionID uuid.UUID, crossPlayEnabled bool, currentMatch uuid.UUID, channel uuid.UUID, sessionSettings SessionSettings, entrants []Entrant) LobbyFindSessionRequest {
 	return LobbyFindSessionRequest{
 		VersionLock:      versionLock,
