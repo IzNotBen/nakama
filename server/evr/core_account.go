@@ -1176,7 +1176,7 @@ type ArenaUnlocks struct {
 	RWDEmote0022                bool `json:"rwd_emote_0022,omitempty"`
 	RWDEmote0023                bool `json:"rwd_emote_0023,omitempty"`
 	RWDEmote0024                bool `json:"rwd_emote_0024,omitempty"`
-	RWDGoalFx0001               bool `json:"rwd_goal_fx_0001,omitempty"`
+	RWDGoalFx0001               bool `json:"rwd_goal_fx_0001,omitempty" validate:"blocked"`
 	RWDGoalFx0006               bool `json:"rwd_goal_fx_0006,omitempty"`
 	RWDGoalFx0007               bool `json:"rwd_goal_fx_0007,omitempty"`
 	RWDGoalFx0014               bool `json:"rwd_goal_fx_0014,omitempty"`
