@@ -27,12 +27,12 @@ func TestLobbyJoinSessionRequest_LobbyID(t *testing.T) {
 		0x29, 0xef, 0x14, 0x0e, 0x00, 0xff, 0xff, 0x0a,
 	}
 
-	b, err := WrapBytes(SymbolOf(&LobbyJoinSessionRequest{}), data)
+	b, err := codec.Wrap(SymbolOf(&LobbyJoinSessionRequest{}), data)
 	if err != nil {
 		t.Error(err)
 	}
 
-	packet, err := ParsePacket(b)
+	packet, err := codec.Unmarshal(b)
 	if err != nil {
 		t.Error(err)
 	}
@@ -82,12 +82,12 @@ func TestLobbyJoinSessionRequest_Moderator(t *testing.T) {
 		0x29, 0xef, 0x14, 0x0e, 0x00, 0x04, 0x00, 0x0a,
 	}
 
-	b, err := WrapBytes(SymbolOf(&LobbyJoinSessionRequest{}), data)
+	b, err := codec.Wrap(SymbolOf(&LobbyJoinSessionRequest{}), data)
 	if err != nil {
 		t.Error(err)
 	}
 
-	packet, err := ParsePacket(b)
+	packet, err := codec.Unmarshal(b)
 	if err != nil {
 		t.Error(err)
 	}
@@ -137,12 +137,12 @@ func TestLobbyJoinSessionRequest_ModerateUser(t *testing.T) {
 		0x29, 0xef, 0x14, 0x0e, 0x00, 0x04, 0x00, 0x0a,
 	}
 
-	b, err := WrapBytes(SymbolOf(&LobbyJoinSessionRequest{}), data)
+	b, err := codec.Wrap(SymbolOf(&LobbyJoinSessionRequest{}), data)
 	if err != nil {
 		t.Error(err)
 	}
 
-	packet, err := ParsePacket(b)
+	packet, err := codec.Unmarshal(b)
 	if err != nil {
 		t.Error(err)
 	}

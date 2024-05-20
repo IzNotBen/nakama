@@ -11,7 +11,7 @@ import (
 func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 	var err error
 
-	data, err := WrapBytes(SymbolOf(&LobbyCreateSessionRequest{}), []byte{
+	data, err := codec.Wrap(SymbolOf(&LobbyCreateSessionRequest{}), []byte{
 		0x3a, 0xa0, 0x23, 0x12, 0xb2, 0xe7, 0x5f, 0x45,
 		0x0d, 0x91, 0x77, 0x8f, 0xd7, 0x01, 0x2f, 0xc6,
 		0x03, 0x8c, 0xdb, 0xf4, 0x65, 0x09, 0x99, 0x09,
@@ -40,7 +40,7 @@ func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 
 	// Add the header to the payload
 
-	packet, err := ParsePacket(data)
+	packet, err := codec.Unmarshal(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 
 	// It's setting the server region to the same value as the level
 
-	data, err := WrapBytes(SymbolOf(&LobbyCreateSessionRequest{}), []byte{
+	data, err := codec.Wrap(SymbolOf(&LobbyCreateSessionRequest{}), []byte{
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		0x0d, 0x91, 0x77, 0x8f, 0xd7, 0x01, 0x2f, 0xc6,
 		0x03, 0x8c, 0xdb, 0xf4, 0x65, 0x09, 0x99, 0x09,
@@ -109,7 +109,7 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 
 	// Add the header to the payload
 
-	packet, err := ParsePacket(data)
+	packet, err := codec.Unmarshal(data)
 	if err != nil {
 		t.Fatal(err)
 	}

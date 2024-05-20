@@ -18,8 +18,10 @@ func TestGenericMessageEncodeDecode(t *testing.T) {
 		0x16, 0x39, 0x73, 0xbd, 0x2b, 0x74, 0x03, 0x00,
 	}
 
+	codec := NewCodec(nil)
+
 	// Unmarshal test packet
-	msgs, err := ParsePacket(packet)
+	msgs, err := codec.Unmarshal(packet)
 	if err != nil {
 		t.Errorf("Unmarshal returned an error: %v", err)
 	}

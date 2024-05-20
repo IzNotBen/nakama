@@ -38,20 +38,20 @@ func TestLobbyPingRequest_Marshal(t *testing.T) {
 	}
 
 	// Unmarshal the expected result to a string
-	packet, err := ParsePacket(expectedResult)
+	packet, err := codec.Unmarshal(expectedResult)
 	if err != nil {
 		t.Fatalf("error in Unmarshal: %v", err)
 	}
 
 	packetJSON, err := json.Marshal(packet)
 	if err != nil {
-		t.Fatalf("error in Marshal: %v", err)
+		t.Fatalf("error in codec.Marshal: %v", err)
 	}
 	log.Println(string(packetJSON))
 
-	result, err := Marshal(lobbyPingRequest)
+	result, err := codec.Marshal(lobbyPingRequest)
 	if err != nil {
-		t.Fatalf("error in MarshalJSON: %v", err)
+		t.Fatalf("error in codec.MarshalJSON: %v", err)
 	}
 
 	if !cmp.Equal(result, expectedResult) {
@@ -74,7 +74,7 @@ func TestEndpoint_MarshalJSON(t *testing.T) {
 
 	resultJson, err := endpoint.MarshalJSON()
 	if err != nil {
-		t.Fatalf("error in MarshalJSON: %v", err)
+		t.Fatalf("error in codec.MarshalJSON: %v", err)
 	}
 
 	var resultString string

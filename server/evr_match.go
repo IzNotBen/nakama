@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/heroiclabs/nakama/v3/server/evr"
 	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/samber/lo"
+	"go.uber.org/zap"
 )
 
 const (
@@ -329,11 +331,15 @@ type evrMatchConfig struct {
 // There always is one per broadcaster.
 // The match is spawned and managed directly by nakama.
 // The match can only be communicated with through MatchSignal() and MatchData messages.
-type EvrMatch struct{}
+type EvrMatch struct {
+	codec *evr.Codec
+}
 
 // NewEvrMatch is called by the match handler when creating the match.
 func NewEvrMatch(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule) (m runtime.Match, err error) {
-	return &EvrMatch{}, nil
+	return &EvrMatch{
+		codec: evr.NewCodec(nil),
+	}, nil
 }
 
 // NewEvrMatchState is a helper function to create a new match state. It returns the state, params, label json, and err.
@@ -842,8 +848,9 @@ func (m *EvrMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sql
 	for _, in := range messages {
 		switch in.GetOpCode() {
 		default:
-			typ, found := evr.SymbolTypes[uint64(in.GetOpCode())]
-			if !found {
+
+			typ, err := m.codec.FromSymbol(evr.Symbol(in.GetOpCode()))
+			if err != nil {
 				logger.Error("Unknown opcode: %v", in.GetOpCode())
 				continue
 			}
@@ -851,7 +858,7 @@ func (m *EvrMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sql
 			logger.Debug("Received match message %T(%s) from %s (%s)", typ, string(in.GetData()), in.GetUsername(), in.GetSessionId())
 			// Unmarshal the message into an interface, then switch on the type.
 			msg := reflect.New(reflect.TypeOf(typ).Elem()).Interface().(evr.Message)
-			if err := json.Unmarshal(in.GetData(), &msg); err != nil {
+			if err = json.Unmarshal(in.GetData(), &msg); err != nil {
 				logger.Error("Failed to unmarshal message: %v", err)
 			}
 
@@ -1056,7 +1063,7 @@ func (m *EvrMatch) dispatchMessages(_ context.Context, logger runtime.Logger, di
 	for _, message := range messages {
 
 		logger.Debug("Sending message from match: %v", message)
-		payload, err := evr.Marshal(message)
+		payload, err := m.codec.Marshal(message)
 		if err != nil {
 			return fmt.Errorf("could not marshal message: %v", err)
 		}
