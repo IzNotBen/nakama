@@ -95,11 +95,10 @@ func (p *GameProfileData) UpdateDisplayName(displayName string) {
 
 }
 
-func (p *GameProfileData) DisableAFKTimeout(enable bool) {
-	if p.Server.DeveloperFeatures == nil {
-		p.Server.DeveloperFeatures = &evr.DeveloperFeatures{}
-	}
+func (p *GameProfileData) SetAFKTimeout(enable bool) {
 	p.Server.DeveloperFeatures.DisableAfkTimeout = enable
+	p.Server.UpdateTime = time.Now().UTC().Unix()
+	p.Client.ModifyTime = time.Now().UTC().Unix()
 }
 
 func (r *GameProfileData) UpdateUnlocks(unlocks evr.UnlockedCosmetics) error {

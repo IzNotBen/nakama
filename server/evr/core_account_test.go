@@ -101,7 +101,23 @@ func TestGUID_MarshalJSON(t *testing.T) {
 
 func TestDeveloperFeatures_Omitted_When_Empty(t *testing.T) {
 
-	profile := ServerProfile{}
+	type testProfile struct {
+		BeforeDev         string            `json:"before_dev,omitempty"`
+		DeveloperFeatures DeveloperFeatures `json:"dev,omitempty"`
+		AfterDev          string            `json:"after_dev,omitempty"`
+	}
+
+	profile := testProfile{
+		BeforeDev: "before",
+		DeveloperFeatures: DeveloperFeatures{
+			DisableAfkTimeout: false,
+			EvrIDOverride: EvrId{
+				PlatformCode: 0,
+				AccountId:    0,
+			},
+		},
+		AfterDev: "after",
+	}
 
 	got, err := json.Marshal(profile)
 	if err != nil {
@@ -109,13 +125,14 @@ func TestDeveloperFeatures_Omitted_When_Empty(t *testing.T) {
 		return
 	}
 
-	if strings.Contains(string(got), "dev") {
-		t.Errorf("ServerProfile contains dev")
-	}
-
+	want := `{"before_dev":"before","after_dev":"after"}`
 	var wantErr error = nil
 	if err != wantErr {
 		t.Errorf("DeveloperFeatures.MarshalJSON() error = %v, wantErr %v", err, wantErr)
 		return
 	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("DeveloperFeatures.MarshalJSON() = `%v`, want `%v`", string(got), string(want))
+	}
+
 }
