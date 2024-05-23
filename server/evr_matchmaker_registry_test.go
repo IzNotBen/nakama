@@ -2,7 +2,6 @@ package server
 
 import (
 	"net"
-	"reflect"
 	"testing"
 )
 
@@ -33,26 +32,26 @@ func Test_ipToKey(t *testing.T) {
 }
 
 func Test_distributeParties(t *testing.T) {
-	partyA1 := &MatchmakerEntry{}
-	partyA2 := &MatchmakerEntry{}
-	partyA3 := &MatchmakerEntry{}
-	partyB1 := &MatchmakerEntry{}
-	partyB2 := &MatchmakerEntry{}
-	partyB3 := &MatchmakerEntry{}
-	partyC1 := &MatchmakerEntry{}
-	partyD1 := &MatchmakerEntry{}
+	partyA1 := &MatchmakingSession{}
+	partyA2 := &MatchmakingSession{}
+	partyA3 := &MatchmakingSession{}
+	partyB1 := &MatchmakingSession{}
+	partyB2 := &MatchmakingSession{}
+	partyB3 := &MatchmakingSession{}
+	partyC1 := &MatchmakingSession{}
+	partyD1 := &MatchmakingSession{}
 	type args struct {
-		parties [][]*MatchmakerEntry
+		parties [][]*MatchmakingSession
 	}
 	tests := []struct {
 		name string
 		args args
-		want [][]*MatchmakerEntry
+		want [][]*MatchmakingSession
 	}{
 		{
 			name: "Test Case 1",
 			args: args{
-				parties: [][]*MatchmakerEntry{
+				parties: [][]*MatchmakingSession{
 					{
 						partyA1,
 						partyA2,
@@ -71,7 +70,7 @@ func Test_distributeParties(t *testing.T) {
 					},
 				},
 			},
-			want: [][]*MatchmakerEntry{
+			want: [][]*MatchmakingSession{
 				{
 					partyA1,
 					partyA2,
@@ -90,8 +89,13 @@ func Test_distributeParties(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := distributeParties(tt.args.parties); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("distributeParties() = %v, want %v", got, tt.want)
+			rosters := distributeParties(tt.args.parties)
+			for i, team := range rosters {
+				for j, player := range team {
+					if player != tt.want[i][j] {
+						t.Errorf("distributeParties() = %v, want %v", player, tt.want[i][j])
+					}
+				}
 			}
 		})
 	}

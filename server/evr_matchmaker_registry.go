@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -138,11 +139,10 @@ func (c *LatencyCache) SelectPingCandidates(endpoints ...evr.Endpoint) []evr.End
 
 // FoundMatch represents the match found and send over the match join channel
 type FoundMatch struct {
-	MatchID       string
-	Ticket        string // matchmaking ticket if any
-	Query         string
-	TeamIndex     TeamIndex
-	KeepTeamIndex bool
+	MatchID        MatchID
+	Ticket         string // matchmaking ticket if any
+	Alignment      TeamAlignment
+	ForceAlignment bool
 }
 
 type TicketMeta struct {
@@ -161,22 +161,15 @@ type MatchmakingSession struct {
 	MatchJoinCh    chan FoundMatch               // Channel for MatchId to join.
 	PingResultsCh  chan []evr.EndpointPingResult // Channel for ping completion.
 	Expiry         time.Time
-	Label          *EvrMatchState
 	Tickets        map[string]TicketMeta // map[ticketId]TicketMeta
 	Party          *PartyHandler
 	LatencyCache   *LatencyCache
-	GlobalSettings MatchmakingSettings
-	UserSettings   MatchmakingSettings
-	Session        *sessionWS
-}
-
-func (s *MatchmakingSession) metricsTags() map[string]string {
-	return map[string]string{
-		"type":  s.Label.LobbyType.String(),
-		"mode":  s.Label.Mode.String(),
-		"level": s.Label.Level.String(),
-		"team":  strconv.FormatInt(int64(s.Label.TeamIndex), 10),
-	}
+	GlobalSettings GlobalMatchmakingSettings
+	UserSettings   UserMatchmakingSettings
+	MatchCriteria  MatchCriteria
+	metricsTags    map[string]string
+	Presence       PlayerPresence
+	pingMu         *sync.Mutex
 }
 
 // Cancel cancels the matchmaking session with a given reason, and returns the reason.
@@ -323,13 +316,12 @@ type MatchmakingRegistry struct {
 	config        Config
 	evrPipeline   *EvrPipeline
 
-	matchingBySession *MapOf[uuid.UUID, *MatchmakingSession]
-	cacheByUserId     *MapOf[uuid.UUID, *LatencyCache]
-	broadcasters      *MapOf[string, evr.Endpoint] // EndpointID -> Endpoint
-
+	matchingBySession   *MapOf[uuid.UUID, *MatchmakingSession]
+	cacheByUserId       *MapOf[uuid.UUID, *LatencyCache]
+	broadcasterRegistry *BroadcasterRegistry
 }
 
-func NewMatchmakingRegistry(logger *zap.Logger, matchRegistry MatchRegistry, matchmaker Matchmaker, metrics Metrics, db *sql.DB, nk runtime.NakamaModule, config Config, evrPipeline *EvrPipeline) *MatchmakingRegistry {
+func NewMatchmakingRegistry(logger *zap.Logger, matchRegistry MatchRegistry, matchmaker Matchmaker, metrics Metrics, db *sql.DB, nk runtime.NakamaModule, config Config, broadcasterRegistry *BroadcasterRegistry) *MatchmakingRegistry {
 	ctx, ctxCancelFn := context.WithCancel(context.Background())
 	c := &MatchmakingRegistry{
 		ctx:         ctx,
@@ -343,82 +335,104 @@ func NewMatchmakingRegistry(logger *zap.Logger, matchRegistry MatchRegistry, mat
 		metrics:       metrics,
 		config:        config,
 
-		matchingBySession: &MapOf[uuid.UUID, *MatchmakingSession]{},
-		cacheByUserId:     &MapOf[uuid.UUID, *LatencyCache]{},
-		broadcasters:      &MapOf[string, evr.Endpoint]{},
+		matchingBySession:   &MapOf[uuid.UUID, *MatchmakingSession]{},
+		cacheByUserId:       &MapOf[uuid.UUID, *LatencyCache]{},
+		broadcasterRegistry: broadcasterRegistry,
 	}
 	// Set the matchmaker's OnMatchedEntries callback
 	matchmaker.OnMatchedEntries(c.matchedEntriesFn)
-	go c.rebuildBroadcasters()
 
 	return c
 }
 
-type MatchmakingSettings struct {
-	BackfillQueryAddon   string     `json:"backfill_query_addon"`  // Additional query to add to the matchmaking query
-	CreateQueryAddon     string     `json:"create_query_addon"`    // Additional query to add to the matchmaking query
-	GroupID              string     `json:"group_id"`              // Group ID to matchmake with
-	PriorityBroadcasters []string   `json:"priority_broadcasters"` // Prioritize these broadcasters
-	NextMatchToken       MatchToken `json:"next_match_id"`         // Try to join this match immediately when finding a match
+type GlobalMatchmakingSettings struct {
+	MinCount              int    `json:"min_count"`               // Minimum number of matches to create
+	MaxCount              int    `json:"max_count"`               // Maximum number of matches to create
+	CountMultiple         int    `json:"count_multiple"`          // Count multiple of the party size
+	BackfillQueryAddon    string `json:"backfill_query_addon"`    // Additional query to add to the matchmaking query
+	MatchmakingQueryAddon string `json:"matchmaking_query_addon"` // Additional query to add to the matchmaking query
+	CreateQueryAddon      string `json:"create_query_addon"`      // Additional query to add to the match
+	BackfillSameMatch     bool   `json:"backfill_same_match"`     // Backfill the same match
 }
 
-func (mr *MatchmakingRegistry) LoadMatchmakingSettings(ctx context.Context, logger *zap.Logger, userID string) (config MatchmakingSettings, err error) {
-	return LoadMatchmakingSettings(ctx, NewRuntimeGoLogger(logger), mr.nk, userID)
+type UserMatchmakingSettings struct {
+	BackfillQueryAddon    string  `json:"backfill_query_addon,omitempty"`    // Additional query to add to the matchmaking query
+	MatchmakingQueryAddon string  `json:"matchmaking_query_addon,omitempty"` // Additional query to add to the matchmaking query
+	CreateQueryAddon      string  `json:"create_query_addon,omitempty"`      // Additional query to add to the matchmaking query
+	GroupID               string  `json:"group_id"`                          // Group ID to matchmake with
+	NextMatchID           MatchID `json:"next_match_id"`                     // Try to join this match immediately when finding a match
 }
 
-func (mr *MatchmakingRegistry) StoreMatchmakingSettings(ctx context.Context, logger *zap.Logger, config MatchmakingSettings, userID string) error {
-	return StoreMatchmakingSettings(mr.ctx, NewRuntimeGoLogger(logger), mr.nk, config, userID)
-}
-
-func LoadMatchmakingSettings(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, userID string) (config MatchmakingSettings, err error) {
-
+func StorageLoad[T any](ctx context.Context, nk runtime.NakamaModule, userID string, collection string, key string, defaultValue T, create bool) (value T, err error) {
 	objs, err := nk.StorageRead(ctx, []*runtime.StorageRead{
 		{
-			Collection: MatchmakingConfigStorageCollection,
-			Key:        MatchmakingConfigStorageKey,
+			Collection: collection,
+			Key:        key,
 			UserID:     userID,
 		},
 	})
 	if err != nil {
-		logger.Error("Failed to read matchmaking config", zap.Error(err))
 		return
 	}
 
-	if len(objs) == 0 {
-		logger.Warn("No matchmaking config found, writing new one")
-		err = StoreMatchmakingSettings(ctx, logger, nk, config, userID)
+	if len(objs) == 0 && create {
+		err = StorageSave(ctx, nk, defaultValue, userID, collection, key)
 		if err != nil {
-			logger.Error("Failed to write matchmaking config", zap.Error(err))
+			return
 		}
 		return
 	}
+	value = defaultValue
 
-	if err = json.Unmarshal([]byte(objs[0].Value), &config); err != nil {
-		logger.Error("Failed to unmarshal matchmaking config", zap.Error(err))
+	if err = json.Unmarshal([]byte(objs[0].Value), &value); err != nil {
+
 		return
 	}
 	return
 }
 
-func StoreMatchmakingSettings(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, config MatchmakingSettings, userID string) error {
-	data, err := json.Marshal(config)
+func StorageSave[T any](ctx context.Context, nk runtime.NakamaModule, value T, userID string, collection string, key string) error {
+	data, err := json.Marshal(value)
 	if err != nil {
-		logger.Error("Failed to marshal matchmaking config", zap.Error(err))
+		return err
 	}
 	_, err = nk.StorageWrite(ctx, []*runtime.StorageWrite{
 		{
 			UserID:          userID,
-			Collection:      MatchmakingConfigStorageCollection,
-			Key:             MatchmakingConfigStorageKey,
+			Collection:      collection,
+			Key:             key,
 			Value:           string(data),
 			PermissionRead:  0,
 			PermissionWrite: 0,
 		},
 	})
-	if err != nil {
-		logger.Error("Failed to write matchmaking config", zap.Error(err))
-	}
 	return err
+}
+
+func LoadGlobalMatchmakingSettings(ctx context.Context, nk runtime.NakamaModule) (config GlobalMatchmakingSettings, err error) {
+	defaultConfig := GlobalMatchmakingSettings{
+		MinCount:      2,
+		MaxCount:      8,
+		CountMultiple: 2,
+	}
+
+	config, err = StorageLoad(ctx, nk, SystemUserID, MatchmakingConfigStorageCollection, MatchmakingConfigStorageKey, defaultConfig, true)
+	return
+}
+
+func LoadUserMatchmakingSettings(ctx context.Context, nk runtime.NakamaModule, userID string) (config UserMatchmakingSettings, err error) {
+	defaultConfig := UserMatchmakingSettings{}
+
+	config, err = StorageLoad(ctx, nk, userID, MatchmakingConfigStorageCollection, MatchmakingConfigStorageKey, defaultConfig, true)
+	return
+}
+
+func StoreGlobalMatchmakingSettings(ctx context.Context, nk runtime.NakamaModule, config GlobalMatchmakingSettings) error {
+	return StorageSave(ctx, nk, config, SystemUserID, MatchmakingConfigStorageCollection, MatchmakingConfigStorageKey)
+}
+
+func StoreUserMatchmakingSettings(ctx context.Context, nk runtime.NakamaModule, userID string, config UserMatchmakingSettings) error {
+	return StorageSave(ctx, nk, config, userID, MatchmakingConfigStorageCollection, MatchmakingConfigStorageKey)
 }
 
 func ipToKey(ip net.IP) string {
@@ -432,101 +446,81 @@ func keyToIP(key string) net.IP {
 
 func (mr *MatchmakingRegistry) matchedEntriesFn(entries [][]*MatchmakerEntry) {
 	// Get the matchmaking config from the storage
-	config, err := mr.LoadMatchmakingSettings(mr.ctx, mr.logger, SystemUserID)
+	config, err := LoadGlobalMatchmakingSettings(mr.ctx, mr.nk)
 	if err != nil {
 		mr.logger.Error("Failed to load matchmaking config", zap.Error(err))
 		return
 	}
 
+	queryAddon := config.CreateQueryAddon
 	for _, entrants := range entries {
-		go mr.buildMatch(entrants, config)
+
+		go mr.buildMatch(entrants, queryAddon)
 	}
 }
 
-func (mr *MatchmakingRegistry) listUnfilledLobbies(ctx context.Context, logger *zap.Logger, searchLabel *EvrMatchState) ([]*EvrMatchState, string, error) {
-	var err error
-	var query string
+func (mr *MatchmakingRegistry) buildRosters(logger *zap.Logger, entrants []*MatchmakerEntry) [][]*MatchmakingSession {
+	// Get the matching sessions for each entrant
 
-	var labels []*EvrMatchState
-
-	if searchLabel.LobbyType != PublicLobby {
-		// Do not backfill for private lobbies
-		return nil, "", status.Errorf(codes.InvalidArgument, "Cannot backfill private lobbies")
-	}
-
-	// TODO Move this into the matchmaking registry
-	query = buildMatchQueryFromLabel(searchLabel)
-
-	// Basic search defaults
-	const (
-		minSize = 1
-		maxSize = MatchMaxSize - 1 // the broadcaster is included, so this has one free spot
-		limit   = 50
-	)
-
-	logger = logger.With(zap.String("query", query))
-
-	// Search for possible matches
-	logger.Debug("Searching for matches")
-	matches, err := mr.listMatches(ctx, limit, minSize, maxSize, query)
-	if err != nil {
-		return nil, "", status.Errorf(codes.Internal, "Failed to find matches: %v", err)
-	}
-
-	// Create a label slice of the matches
-	labels = make([]*EvrMatchState, 0, len(matches))
-	for _, match := range matches {
-		label := &EvrMatchState{}
-		if err := json.Unmarshal([]byte(match.GetLabel().GetValue()), label); err != nil {
-			logger.Error("Error unmarshalling match label", zap.Error(err))
+	partyMap := make(map[string][]*MatchmakingSession, len(entrants))
+	for _, entrant := range entrants {
+		ms, ok := mr.GetMatchingBySessionId(entrant.Presence.SessionID)
+		if !ok {
+			logger.Error("Could not find matching session for user", zap.String("sessionID", entrant.Presence.SessionID.String()))
 			continue
 		}
-		labels = append(labels, label)
+		partyMap[entrant.PartyId] = append(partyMap[entrant.PartyId], ms)
 	}
 
-	return labels, query, nil
+	partySlice := make([][]*MatchmakingSession, 0, len(partyMap))
+	for _, p := range partyMap {
+		partySlice = append(partySlice, p)
+	}
+
+	// Generate the rosters, and distribute the players to the teams based on the parties
+	rosters := distributeParties(partySlice)
+	if len(rosters) != 2 {
+		logger.Error("Invalid number of teams", zap.Int("teams", len(rosters)))
+		return nil
+	}
+	return rosters
 }
 
-func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config MatchmakingSettings) {
-	logger := mr.logger
-
+func (mr *MatchmakingRegistry) pickChannel(entrants []*MatchmakerEntry) []uuid.UUID {
 	// Get the channels from the entrants
-	channelmap := make(map[uuid.UUID]int, len(entrants))
+	channelMap := make(map[uuid.UUID]int, len(entrants))
 	for _, e := range entrants {
-		stringProperties := e.StringProperties
-		channel := uuid.FromStringOrNil(stringProperties["channel"])
-		channelmap[channel] += 1
+		channel := uuid.FromStringOrNil(e.StringProperties["channel"])
+		channelMap[channel] += 1
 	}
-	channels := make([]uuid.UUID, 0, len(channelmap))
-	for k := range channelmap {
-		channels = append(channels, k)
-	}
+
+	channels := lo.Keys(channelMap)
 
 	// Sort the channels by the most common
 	sort.SliceStable(channels, func(i, j int) bool {
-		return channelmap[channels[i]] > channelmap[channels[j]]
+		return channelMap[channels[i]] > channelMap[channels[j]]
 	})
 
-	// Get the top 10 channels
-	if len(channels) > 10 {
-		channels = channels[:10]
-	}
+	// Sort the channel map by
+	return channels
+
+}
+
+func (mr *MatchmakingRegistry) scoreBroadcasters(versionLock evr.Symbol, entrants []*MatchmakerEntry) []string {
 
 	// Get a map of all broadcasters by their key
-	broadcastersByExtIP := make(map[string]evr.Endpoint, 100)
-	mr.broadcasters.Range(func(k string, v evr.Endpoint) bool {
-		broadcastersByExtIP[k] = v
-		return true
-	})
+	broadcastersByExtIP := make(map[string]uuid.UUID, 100)
+	broadcasters := mr.broadcasterRegistry.GetBroadcasters(versionLock, false)
+
+	for s, b := range broadcasters {
+		broadcastersByExtIP[ipToKey(b.Presence.Endpoint.ExternalIP)] = s
+	}
 
 	// Create a map of each endpoint and it's latencies to each entrant
-	latencies := make(map[string][]int, 100)
+	latencies := make(map[string][]int, len(broadcastersByExtIP))
 	for _, e := range entrants {
-		nprops := e.NumericProperties
-		//sprops := e.StringProperties
-
 		// loop over the number props and get the latencies
-		for k, v := range nprops {
+		for k, v := range e.NumericProperties {
 			if strings.HasPrefix(k, "rtt") {
 				latencies[k] = append(latencies[k], int(v))
 			}
@@ -534,7 +528,7 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 	}
 
 	// Score each endpoint based on the latencies
-	scored := make(map[string]int, len(latencies))
+	scores := make(map[string]int, len(latencies))
 	for k, v := range latencies {
 		// Sort the latencies
 		sort.Ints(v)
@@ -544,420 +538,227 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 			average += i
 		}
 		average /= len(v)
-		scored[k] = average
+		scores[k] = average
 	}
 	// Sort the scored endpoints
-	sorted := make([]string, 0, len(scored))
-	for k := range scored {
+	sorted := make([]string, 0, len(scores))
+	for k := range scores {
 		sorted = append(sorted, k)
 	}
+
+	// Sort the scored endpoints by the score
 	sort.SliceStable(sorted, func(i, j int) bool {
-		return scored[sorted[i]] < scored[sorted[j]]
+		return scores[sorted[i]] < scores[sorted[j]]
 	})
 
-	parties := make(map[string][]*MatchmakerEntry, 8)
-	for _, e := range entrants {
-		id := e.GetPartyId()
-		parties[id] = append(parties[id], e)
-	}
+	return sorted
+}
 
-	// Get the ml from the first participant
-	var ml *EvrMatchState
-
-	for _, e := range entrants {
-		if s, ok := mr.GetMatchingBySessionId(e.Presence.SessionID); ok {
-			ml = s.Label
-			break
-		}
-	}
-	if ml == nil {
-		mr.logger.Error("No label found")
-		return // No label found
-	}
-
-	// Try to backfill matches with parties
-	var backfillMatches []*EvrMatchState
-	backfillMatches, _, err := mr.listUnfilledLobbies(mr.ctx, logger, ml)
-	if err != nil {
-		logger.Error("Failed to list unfilled lobbies", zap.Error(err))
-		return
-	}
-
-	for partyID, party := range parties {
-		partySize := len(party)
-		if partySize == 1 {
-			continue
-		}
-
-		for i, m := range backfillMatches {
-			if m.PlayerLimit-m.Size < partySize {
-				continue
-			}
-			// Make sure adding these players makes the teams the same size
-			if (m.Size+partySize)%2 != 0 {
-				continue
-			}
-			logger.Info("Backfilling match", zap.String("matchID", m.MatchID.String()), zap.String("partyID", partyID), zap.Any("party", party))
-			// Add the party to the match
-			for _, e := range party {
-				// Remove the player from the entrants list
-				for j, e2 := range entrants {
-					if e2.Presence.SessionID == e.Presence.SessionID {
-						entrants = append(entrants[:j], entrants[j+1:]...)
-						break
-					}
-				}
-
-				msession, ok := mr.GetMatchingBySessionId(e.Presence.SessionID)
-				if !ok {
-					logger.Warn("Could not find matching session for user", zap.String("sessionID", e.Presence.SessionID.String()))
-					continue
-				}
-
-				err := joinPlayerToMatch(logger, msession, m.MatchID.String()+"."+m.Node)
-				if err != nil {
-					logger.Error("Error joining player to match", zap.Error(err))
-				}
-			}
-
-			// Remove the party from the party list
-			delete(parties, partyID)
-			// Set the backfill match size to the new size
-			backfillMatches[i].Size += partySize
-
-		}
-	}
-
-	teams := distributeParties(lo.Values(parties))
-	if len(teams) != 2 {
-		logger.Error("Invalid number of teams", zap.Int("teams", len(teams)))
-		return
-	}
-	ml.Players = make([]PlayerInfo, 0, len(entrants))
-	for i, players := range teams {
-		for _, p := range players {
-			// Update the label with the teams
-			evrID, err := evr.ParseEvrId(p.StringProperties["evr_id"])
-			if err != nil {
-				logger.Error("Failed to parse evr id", zap.Error(err))
-				continue
-			}
-			pi := PlayerInfo{
-				Team:  TeamIndex(i),
-				EvrID: *evrID,
-			}
-			ml.Players = append(ml.Players, pi)
-		}
-	}
-	metricsTags := map[string]string{
-		"type":     strconv.FormatInt(int64(ml.LobbyType), 10),
-		"mode":     ml.Mode.String(),
-		"channel":  ml.Channel.String(),
-		"level":    ml.Level.String(),
-		"team_idx": strconv.FormatInt(int64(ml.TeamIndex), 10),
-	}
-	mr.metrics.CustomCounter("matchmaking_matched_participant_count", metricsTags, int64(len(entrants)))
-	// Find a valid participant to get the label from
-
-	ml.SpawnedBy = uuid.Nil.String()
-
+func (mr *MatchmakingRegistry) createLoop(channels []uuid.UUID, broadcasters []string, matchCriteria MatchCriteria) (mt MatchID, err error) {
 	// Loop until a server becomes available or matchmaking times out.
 	timeout := time.After(3 * time.Minute)
 	interval := time.NewTicker(10 * time.Second)
+	var matchID MatchID
+	for {
 
-	select {
-	case <-mr.ctx.Done(): // Context cancelled
-		return
-	default:
-	}
-	matchID := ""
-
-		matchID, err = mr.allocateBroadcaster(channels, config, sorted, ml)
+		matchID, err := mr.allocateBroadcaster(channels, broadcasters, matchCriteria)
 		if err != nil {
 			if err != ErrMatchmakingNoAvailableServers {
 				mr.logger.Error("Error allocating broadcaster", zap.Error(err))
 			}
 		}
-		if matchID != "" {
+		if !matchID.IsNil() {
 			break
 		}
 
 		select {
 		case <-mr.ctx.Done(): // Context cancelled
-			return
+			return mt, ErrMatchmakingCanceled
 
 		case <-timeout: // Timeout
-
-			mr.logger.Info("Matchmaking timeout looking for an available server")
-			for _, e := range entrants {
-				s, ok := mr.GetMatchingBySessionId(e.Presence.SessionID)
-				if !ok {
-					logger.Warn("Could not find matching session for user", zap.String("sessionID", e.Presence.SessionID.String()))
-					continue
-				}
-				s.CtxCancelFn(ErrMatchmakingNoAvailableServers)
-			}
-			return
-		case <-interval.C: // List all the unassigned lobbies on this channel
-			// Check if the match is still unassigned
-
-		}
-	}
-	// Assign the teams to the match, taking one from each team at a time
-	// and sending the join instruction to the server
-
-	if matchID == "" {
-		logger.Error("No match ID found")
-		return
-	}
-
-	for i, players := range teams {
-		// Assign each player in the team to the match
-		for _, entry := range players {
-			s, ok := mr.GetMatchingBySessionId(entry.Presence.SessionID)
-			if !ok {
-				logger.Warn("Could not find matching session for user", zap.String("sessionID", entry.Presence.SessionID.String()))
-				continue
-			}
-			// Get the ticket metadata
-			ticket := entry.GetTicket()
-			ticketMeta, ok := s.Tickets[ticket]
-			if !ok {
-				logger.Warn("Could not find ticket metadata for user", zap.String("sessionID", entry.Presence.SessionID.String()), zap.String("ticket", ticket))
-				continue
-			}
-
-			foundMatch := FoundMatch{
-				MatchID:       matchID,
-				Ticket:        ticketMeta.TicketID,
-				Query:         ticketMeta.Query,
-				TeamIndex:     TeamIndex(i),
-				KeepTeamIndex: true,
-			}
-			// Send the join instruction
-			select {
-			case <-s.Ctx.Done():
-				logger.Warn("Matchmaking session cancelled", zap.String("sessionID", entry.Presence.SessionID.String()))
-				continue
-			case s.MatchJoinCh <- foundMatch:
-				logger.Info("Sent match join instruction", zap.String("sessionID", entry.Presence.SessionID.String()))
-			case <-time.After(2 * time.Second):
-				logger.Warn("Failed to send match join instruction", zap.String("sessionID", entry.Presence.SessionID.String()))
-			}
-		}
-	}
-}
-
-func joinPlayerToMatch(logger *zap.Logger, msession *MatchmakingSession, matchID string) error {
-	foundMatch := FoundMatch{
-		MatchID:   matchID,
-		TeamIndex: TeamIndex(-1),
-	}
-	// Send the join instruction
-	select {
-	case <-msession.Ctx.Done():
-		return ErrMatchmakingCanceled
-	case msession.MatchJoinCh <- foundMatch:
-		return nil
-	case <-time.After(2 * time.Second):
-		return status.Errorf(codes.DeadlineExceeded, "Failed to send match join instruction")
-	}
-	return nil
-}
-
-func distributeParties(parties [][]*MatchmakerEntry) [][]*MatchmakerEntry {
-	// Distribute the players from each party on the two teams.
-	// Try to keep the parties together, but the teams must be balanced.
-	// The algorithm is greedy and may not always produce the best result.
-	// Each team must be 4 players or less
-	teams := [][]*MatchmakerEntry{{}, {}}
-
-	// Sort the parties by size, single players last
-	sort.SliceStable(parties, func(i, j int) bool {
-		if len(parties[i]) == 1 {
-			return false
-		}
-		return len(parties[i]) < len(parties[j])
-	})
-
-	// Distribute the parties to the teams
-	for _, party := range parties {
-		// Find the team with the least players
-		team := 0
-		for i, t := range teams {
-			if len(t) < len(teams[team]) {
-				team = i
-			}
-		}
-		teams[team] = append(teams[team], party...)
-	}
-	// sort the teams by size
-	sort.SliceStable(teams, func(i, j int) bool {
-		return len(teams[i]) > len(teams[j])
-	})
-
-	for i, player := range teams[0] {
-		// If the team is more than two players larger than the other team, distribute the players evenly
-		if len(teams[0]) > len(teams[1])+1 {
-			// Move a player from teams[0] to teams[1]
-			teams[1] = append(teams[1], player)
-			teams[0] = append(teams[0][:i], teams[0][i+1:]...)
+			return mt, ErrMatchmakingTimeout
+		case <-interval.C:
 		}
 	}
 
-	return teams
-}
-
-func (mr *MatchmakingRegistry) allocateBroadcaster(channels []uuid.UUID, config MatchmakingSettings, sorted []string, label *EvrMatchState) (string, error) {
-func (mr *MatchmakingRegistry) allocateBroadcaster(channels []uuid.UUID, config MatchmakingSettings, sorted []string, label *EvrMatchState) (string, error) {
-	// Lock the broadcasters so that they aren't double allocated
-	mr.Lock()
-	defer mr.Unlock()
-	available, err := mr.ListUnassignedLobbies(mr.ctx, channels, evr.Symbol(0), config.MatchmakingQueryAddon)
-	if err != nil {
-		return "", err
+	if matchID.IsNil() {
+		mr.logger.Error("No match ID found")
+		return mt, ErrMatchmakingNoAvailableServers
 	}
-	if len(available) == 0 {
-		return "", ErrMatchmakingNoAvailableServers
-	}
-	availableByExtIP := make(map[string]string, len(available))
-
-	for _, label := range available {
-		k := ipToKey(label.Broadcaster.Endpoint.ExternalIP)
-		v := fmt.Sprintf("%s.%s", label.MatchID, mr.config.GetName()) // Parking match ID
-		availableByExtIP[k] = v
-	}
-
-	// Convert the priority broadcasters to a list of rtt's
-	priority := make([]string, 0, len(config.PriorityBroadcasters))
-	for i, ip := range config.PriorityBroadcasters {
-		priority[i] = ipToKey(net.ParseIP(ip))
-	}
-
-	sorted = append(priority, sorted...)
-
-	var matchID string
-	var found bool
-	for _, k := range sorted {
-		// Get the endpoint
-		matchID, found = availableByExtIP[k]
-		if !found {
-			continue
-		}
-		break
-	}
-	// Found a match
-	label.SpawnedBy = SystemUserID
-
-	prepareSignal := SignalPrepareSession{
-		State: *label,
-	}
-	// Instruct the server to prepare the level
-	response, err := SignalMatch(mr.ctx, mr.matchRegistry, matchID, prepareSignal)
-	if err != nil {
-		return "", fmt.Errorf("error signaling match: %s: %v", response, err)
-	}
-
-	<-time.After(5 * time.Second)
-
-	if response != "" {
-		return "", fmt.Errorf("match signal returned error: %s", response)
-	}
-
 	return matchID, nil
 }
 
-func (c *MatchmakingRegistry) rebuildBroadcasters() {
-	ticker := time.NewTicker(20 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case <-ticker.C:
-			c.updateBroadcasters()
+func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, queryAddon string) {
+	logger := mr.logger
+	if len(entrants) == 0 {
+		logger.Warn("No entrants in the match")
+		return
+	}
+
+	// Get the matchSettings from the first participant
+	var matchCriteria MatchCriteria
+
+	for _, e := range entrants {
+		if s, ok := mr.GetMatchingBySessionId(e.Presence.SessionID); ok {
+			matchCriteria = s.MatchCriteria
+			break
+		}
+	}
+
+	metricsTags := map[string]string{
+		"version_lock": entrants[0].StringProperties["version_lock"],
+		"mode":         matchCriteria.Mode.String(),
+		"level":        matchCriteria.Level.String(),
+	}
+	mr.metrics.CustomCounter("matchmaking_matched_participant_count", metricsTags, int64(len(entrants)))
+
+	versionLock := entrants[0].StringProperties["version_lock"]
+
+	rosters := mr.buildRosters(logger, entrants)
+
+	channels := mr.pickChannel(entrants)
+
+	broadcasterScores := mr.scoreBroadcasters(evr.ToSymbol(versionLock), entrants)
+
+	matchID, err := mr.createLoop(channels, broadcasterScores, matchCriteria)
+	if err != nil {
+		logger.Error("Failed to create match", zap.Error(err))
+		return
+	}
+
+	participants := make(map[uuid.UUID]*MatchmakingSession, len(entrants))
+	var ok bool
+	for _, e := range entrants {
+		participants[e.Presence.SessionID], ok = mr.GetMatchingBySessionId(e.Presence.SessionID)
+		if !ok {
+			logger.Error("Could not find matching session for user", zap.String("sessionID", e.Presence.SessionID.String()))
+			continue
+		}
+	}
+	entrantMap := make(map[uuid.UUID]*MatchmakerEntry, len(entrants))
+
+	// Assign the teams to the match
+	for i, msessions := range rosters {
+		// Assign each player in the team to the match
+		for _, msession := range msessions {
+			// Get the ticket metadata
+
+			entrant := entrantMap[msession.Session.id]
+
+			foundMatch := FoundMatch{
+				MatchID:        matchID,
+				Ticket:         entrant.GetTicket(),
+				Alignment:      TeamAlignment(i),
+				ForceAlignment: true,
+			}
+			// Send the join instruction
+			select {
+			case <-msession.Ctx.Done():
+				logger.Warn("Matchmaking session cancelled", zap.String("sessionID", entrant.Presence.SessionID.String()))
+				continue
+			case msession.MatchJoinCh <- foundMatch:
+				logger.Info("Sent match join instruction", zap.String("sessionID", entrant.Presence.SessionID.String()))
+			case <-time.After(2 * time.Second):
+				logger.Warn("Failed to send match join instruction", zap.String("sessionID", entrant.Presence.SessionID.String()))
+			}
 		}
 	}
 }
 
-func (c *MatchmakingRegistry) updateBroadcasters() {
-	matches, err := c.listMatches(c.ctx, 1000, 1, MatchMaxSize, "")
-	if err != nil {
-		c.logger.Error("Error listing matches", zap.Error(err))
+func distributeParties(parties [][]*MatchmakingSession) [][]*MatchmakingSession {
+	// Distribute the players from each party on the two teams.
+	// Sort the parties by size, smallest to largest
+	parties = make([][]*MatchmakingSession, 0, len(parties))
+	for _, p := range parties {
+		parties = append(parties, p)
 	}
-	// Get the endpoints from the match labels
-	for _, match := range matches {
-		l := match.GetLabel().GetValue()
-		s := &EvrMatchState{}
-		if err := json.Unmarshal([]byte(l), s); err != nil {
-			c.logger.Error("Error unmarshalling match label", zap.Error(err))
-			continue
+
+	slices.SortStableFunc(parties, func(a, b []*MatchmakingSession) int {
+		return len(a) - len(b)
+	})
+
+	rosters := make([][]*MatchmakingSession, 2)
+
+	// Starting with parties of two, try to add them to the teams, if the party doesn't fit, put it on the other team
+	for i, party := range parties {
+		// If the party fits on the first team, add it
+		if len(rosters[0])+len(party) <= 4 {
+			for _, player := range party {
+				rosters[0] = append(rosters[0], player)
+			}
+			parties = append(parties[:i], parties[i+1:]...)
+		} else {
+			// If the party fits on the second team, add it
+			for _, player := range party {
+				rosters[1] = append(rosters[1], player)
+			}
+			parties = append(parties[:i], parties[i+1:]...)
 		}
-		id := s.Broadcaster.Endpoint.ID()
-		c.broadcasters.Store(id, s.Broadcaster.Endpoint)
 	}
+
+	// Put all the remaining players on the first team.
+	for _, party := range parties {
+		for _, p := range party {
+			rosters[0] = append(rosters[0], p)
+		}
+	}
+
+	// Balance the teams
+	if len(rosters[0]) > 4 {
+		rosters[1] = append(rosters[1], rosters[0][4:]...)
+	}
+
+	return rosters
 }
 
-func (c *MatchmakingRegistry) ListUnassignedLobbies(ctx context.Context, channels []uuid.UUID, region evr.Symbol, queryAddon string) ([]*EvrMatchState, error) {
+func (mr *MatchmakingRegistry) allocateBroadcaster(channels []uuid.UUID, sorted []string, matchCriteria MatchCriteria) (mt MatchID, err error) {
+	// Lock the broadcasters so that they aren't double allocated
+	mr.Lock()
+	defer mr.Unlock()
 
-	// TODO Move this into the matchmaking registry
-	qparts := make([]string, 0, 10)
+	mr.broadcasterRegistry.Lock()
+	defer mr.broadcasterRegistry.Unlock()
+	broadcasters := mr.broadcasterRegistry.GetBroadcasters(matchCriteria.VersionLock, false)
 
-	// MUST be an unassigned lobby
-	qparts = append(qparts, LobbyType(evr.UnassignedLobby).Query(Must, 0))
-
-	// MUST be one of the accessible channels (if provided)
-	if len(channels) > 0 {
-		// Add the channels to the query
-		qparts = append(qparts, HostedChannels(channels).Query(Must, 0))
+	var broadcaster *Broadcaster
+	for _, k := range sorted {
+		for _, b := range broadcasters {
+			if ipToKey(b.Presence.Endpoint.ExternalIP) == k {
+				// Allocate the broadcaster to the match
+				broadcaster = &b
+			}
+		}
+	}
+	// Find the first matching channel for this server
+	var channel uuid.UUID
+	for _, c := range channels {
+		if slices.Contains(broadcaster.Presence.Channels, c) {
+			channel = c
+			break
+		}
 	}
 
-	// Add each hosted channel as a SHOULD, with decreasing boost
-
-	for i, channel := range channels {
-		qparts = append(qparts, Channel(channel).Query(Should, len(channels)-i))
+	if broadcaster == nil {
+		return mt, ErrMatchmakingNoAvailableServers
 	}
 
-	// SHOULD match the region (if specified)
-	if region.IsNotNil() {
-		qparts = append(qparts, Region(region).Query(Should, 3))
+	matchSettings := NewMatchSettingsFromMode(matchCriteria.Mode, matchCriteria.VersionLock)
+
+	params := MatchParameters{
+		Settings: matchSettings,
+		Metadata: MatchMetadata{
+			Channel: channel,
+		},
+		Broadcaster: broadcaster.Presence,
+		TickRate:    15,
 	}
 
-	qparts = append(qparts, queryAddon)
-
-	// TODO FIXME Add version lock and appid
-	query := strings.Join(qparts, " ")
-
-	limit := 100
-	minSize, maxSize := 1, 1 // Only the 1 broadcaster should be there.
-
-	matches, err := c.listMatches(ctx, limit, minSize, maxSize, query)
+	matchID, err := mr.nk.MatchCreate(mr.ctx, MatchModule, params.AsMap())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Failed to find matches: %v", err)
+		return mt, fmt.Errorf("error creating match: %v", err)
 	}
 
-	// Create a slice containing the matches' labels
-	labels := make([]*EvrMatchState, 0, len(matches))
-	for _, match := range matches {
-		label := &EvrMatchState{}
-		if err := json.Unmarshal([]byte(match.GetLabel().GetValue()), label); err != nil {
-			return nil, status.Errorf(codes.Internal, "Failed to unmarshal match label: %v", err)
-		}
-
-		// Check special tags
-		if region.IsNotNil() && label.Broadcaster.Region != region && lo.Contains(label.Broadcaster.Tags, "regiononly") {
-			continue
-		}
-
-		labels = append(labels, label)
-	}
-
-	// If no servers are available, return immediately.
-	if len(labels) == 0 {
-		return nil, ErrMatchmakingNoAvailableServers
-	}
-
-	return labels, nil
+	return MatchIDFromStringOrNil(matchID), nil
 }
 
 // GetPingCandidates returns a list of endpoints to ping for a user. It also updates the broadcasters.
@@ -1031,13 +832,6 @@ func (m *MatchmakingSession) GetPingCandidates(endpoints ...evr.Endpoint) (candi
 func (r *MatchmakingRegistry) GetCache(userId uuid.UUID) *LatencyCache {
 	cache, _ := r.cacheByUserId.LoadOrStore(userId, &LatencyCache{})
 	return cache
-}
-
-// UpdateBroadcasters updates the broadcasters map
-func (r *MatchmakingRegistry) UpdateBroadcasters(endpoints []evr.Endpoint) {
-	for _, e := range endpoints {
-		r.broadcasters.Store(e.ID(), e)
-	}
 }
 
 // listMatches returns a list of matches
@@ -1153,26 +947,31 @@ func (c *MatchmakingRegistry) Delete(sessionId uuid.UUID) {
 }
 
 // Add adds a matching session to the registry
-func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, session *sessionWS, ml *EvrMatchState, timeout time.Duration, errorFn func(err error) error, joinFn func(matchId string, query string) error, joinParty bool) (*MatchmakingSession, error) {
+func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, session *sessionWS, presence PlayerPresence, settings MatchSettings, timeout time.Duration, errorFn func(err error) error, joinFn func(matchToken MatchID) error, joinParty bool) (*MatchmakingSession, error) {
 	// Check if there is an existing session
 	if _, ok := c.GetMatchingBySessionId(session.ID()); ok {
 		// Cancel it
 		c.Cancel(session.ID(), ErrMatchmakingCanceledByPlayer)
 	}
-	userSettings, err := c.LoadMatchmakingSettings(ctx, logger, session.UserID().String())
+	userSettings, err := LoadUserMatchmakingSettings(ctx, c.nk, session.UserID().String())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to load matchmaking settings: %v", err)
 	}
 
-	globalSettings, err := c.LoadMatchmakingSettings(ctx, logger, SystemUserID)
+	globalSettings, err := LoadGlobalMatchmakingSettings(ctx, c.nk)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to load matchmaking settings: %v", err)
+	}
+
+	metricsTags := map[string]string{
+		"version_lock": presence.VersionLock.String(),
+		"type":         settings.LobbyType.String(),
+		"mode":         settings.Mode.String(),
+		"level":        settings.Level.String(),
+		"alignment":    presence.Alignment.String(),
 	}
 
 	// Set defaults for the matching label
-	ml.Open = true // Open for joining
-	ml.MaxSize = MatchMaxSize
-
 	logger = logger.With(zap.String("msid", session.ID().String()))
 	ctx, cancel := context.WithCancelCause(ctx)
 	msession := &MatchmakingSession{
@@ -1184,13 +983,14 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 		MatchJoinCh:    make(chan FoundMatch, 5),
 		PingResultsCh:  make(chan []evr.EndpointPingResult),
 		Expiry:         time.Now().UTC().Add(findAttemptsExpiry),
-		Label:          ml,
 		Tickets:        make(map[string]TicketMeta),
 		UserSettings:   userSettings,
 		GlobalSettings: globalSettings,
-		Session:        session,
+		metricsTags:    metricsTags,
+		pingMu:         &sync.Mutex{},
 	}
 
+	// Set the player presence
 	// Load the latency cache
 	cache, err := c.LoadLatencyCache(ctx, logger, session, msession)
 	if err != nil {
@@ -1199,21 +999,21 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 	msession.LatencyCache = cache
 
 	// Join the party if requested
-	if joinParty && userSettings.GroupID != "" && msession.Label.TeamIndex != Spectator && msession.Label.TeamIndex != Moderator {
+	if joinParty && userSettings.GroupID != "" {
 		if err := msession.joinParty(); err != nil {
 			return nil, err
 		}
 	}
-	msession.UpdatePlayerCounts()
+
 	// listen for a match ID to join
 	go func() {
 		// Create a timer for this session
 		startedAt := time.Now().UTC()
 		metricsTags := map[string]string{
-			"mode":    ml.Mode.String(),
-			"channel": ml.Channel.String(),
-			"level":   ml.Level.String(),
-			"team":    strconv.FormatInt(int64(ml.TeamIndex), 10),
+			"mode":    msession.MatchCriteria.Mode.String(),
+			"channel": msession.Presence.Memberships[0].ChannelID.String(),
+			"level":   msession.MatchCriteria.Level.String(),
+			"team":    strconv.FormatInt(int64(msession.Presence.Alignment), 10),
 			"result":  "success",
 		}
 		defer func() {
@@ -1233,7 +1033,7 @@ func (c *MatchmakingRegistry) Create(ctx context.Context, logger *zap.Logger, se
 			c.metrics.CustomCounter("matchmaking_session_timeout_count", metricsTags, 1)
 		case matchFound := <-msession.MatchJoinCh:
 			// join the match
-			err = joinFn(matchFound.MatchID, matchFound.Query)
+			err = joinFn(matchFound.MatchID)
 
 			c.metrics.CustomCounter("matchmaking_session_success_count", metricsTags, 1)
 
@@ -1279,70 +1079,103 @@ func (c *MatchmakingRegistry) Add(id uuid.UUID, s *MatchmakingSession) {
 
 }
 
-// GetLatencies returns the cached latencies for a user
-func (c *MatchmakingRegistry) GetLatencies(userId uuid.UUID, endpoints []evr.Endpoint) map[string]LatencyMetric {
-
-	// If the user ID is nil or there are no endpoints, return nil
-	if userId == uuid.Nil {
-		return nil
+// PingEndpoints pings the endpoints and returns the latencies.
+func (ms *MatchmakingSession) PingEndpoints(endpoints map[string]evr.Endpoint) ([]LatencyMetric, error) {
+	if len(endpoints) == 0 {
+		return nil, nil
 	}
-	// Create endpoint id slice
-	endpointIds := make([]string, 0, len(endpoints))
-	for _, e := range endpoints {
-		endpointIds = append(endpointIds, e.ID())
-	}
+	logger := ms.Logger
 
-	cache := c.GetCache(userId)
+	// get teh "ping" lock so that two ping requests are not sent out within the same time frame
+	ms.pingMu.Lock()
+	defer ms.pingMu.Unlock()
 
-	// If no endpoints are provided, get all the latencies from the cache
-	// build a new map to avoid locking the cache for too long
-	if len(endpointIds) == 0 {
-		results := make(map[string]LatencyMetric, 100)
-		cache.Range(func(k string, v LatencyMetric) bool {
-			results[k] = v
-			return true
-		})
-		return results
-	}
-	// Return just the endpoints requested
-	results := make(map[string]LatencyMetric, len(endpointIds))
-	for _, id := range endpointIds {
-		endpoint := evr.FromEndpointID(id)
-		// Create the endpoint and add it to the cache
-		e := LatencyMetric{
-			Endpoint:  endpoint,
-			RTT:       0,
-			Timestamp: time.Now(),
+	// Get the candidates for pinging
+	candidates := ms.GetPingCandidates(lo.Values(endpoints)...)
+	if len(candidates) > 0 {
+		if err := ms.sendPingRequest(logger, candidates); err != nil {
+			return nil, err
 		}
-		r, _ := cache.LoadOrStore(id, e)
-		results[id] = r
+
+		select {
+		case <-ms.Ctx.Done():
+			return nil, ErrMatchmakingCanceled
+		case <-time.After(5 * time.Second):
+			return nil, ErrMatchmakingPingTimeout
+		case results := <-ms.PingResultsCh:
+			cache := ms.LatencyCache
+
+			// Add the latencies to the cache
+			for _, response := range results {
+
+				r := LatencyMetric{
+					Endpoint:  endpoints[response.EndpointID()],
+					RTT:       response.RTT(),
+					Timestamp: time.Now(),
+				}
+
+				cache.Store(r.ID(), r)
+			}
+		}
 	}
-	return results
+
+	return ms.getEndpointLatencies(endpoints), nil
 }
 
-func (ms *MatchmakingSession) UpdatePlayerCounts() {
+// sendPingRequest sends a ping request to the given candidates.
+func (ms *MatchmakingSession) sendPingRequest(logger *zap.Logger, candidates []evr.Endpoint) error {
 
-	partySize := 1
-	if ms.Party != nil {
-		partySize = ms.Party.members.Size()
+	if err := ms.Session.SendEvr(
+		evr.NewLobbyPingRequest(275, candidates),
+		evr.NewSTcpConnectionUnrequireEvent(),
+	); err != nil {
+		return err
 	}
-	ml := ms.Label
+	return nil
+}
 
-	// Set defaults for public matches
-	switch {
-	case ml.Mode == evr.ModeSocialPrivate || ml.Mode == evr.ModeSocialPublic:
-		ml.Level = evr.LevelSocial // Include the level in the search
-		ml.TeamSize = MatchMaxSize
-		ml.PlayerCount = MatchMaxSize - partySize
+// getEndpointLatencies returns the latencies for the given endpoints.
+func (ms *MatchmakingSession) getEndpointLatencies(endpoints map[string]evr.Endpoint) []LatencyMetric {
 
-	case ml.Mode == evr.ModeArenaPublic || ml.Mode == evr.ModeCombatPublic:
-		ml.TeamSize = 4
-		ml.PlayerCount = ml.TeamSize*2 - partySize // Both teams, minus the party size
-
-	default: // Privates
-		ml.PlayerCount = MatchMaxSize - partySize
-		ml.TeamSize = 5
+	// Create endpoint id slice
+	endpointIDs := make([]string, 0, len(endpoints))
+	for _, e := range endpoints {
+		endpointIDs = append(endpointIDs, e.ID())
 	}
+
+	var endpointRTTs map[string]LatencyMetric
+	// If no endpoints are provided, get all the latencies from the cache
+	// build a new map to avoid locking the cache for too long
+	if len(endpointIDs) == 0 {
+		endpointRTTs = make(map[string]LatencyMetric, 100)
+		ms.LatencyCache.Range(func(k string, v LatencyMetric) bool {
+			endpointRTTs[k] = v
+			return true
+		})
+	} else {
+		// Return just the endpoints requested
+		endpointRTTs = make(map[string]LatencyMetric, len(endpointIDs))
+		for _, id := range endpointIDs {
+			endpoint := evr.FromEndpointID(id)
+			// Create the endpoint and add it to the cache
+			e := LatencyMetric{
+				Endpoint:  endpoint,
+				RTT:       0,
+				Timestamp: time.Now(),
+			}
+			r, _ := ms.LatencyCache.LoadOrStore(id, e)
+			endpointRTTs[id] = r
+		}
+	}
+
+	results := make([]LatencyMetric, 0, len(endpoints))
+	for _, e := range endpoints {
+		if l, ok := endpointRTTs[e.ID()]; ok {
+			results = append(results, l)
+		}
+	}
+
+	return results
 }
 
 func (ms *MatchmakingSession) joinParty() error {
@@ -1426,9 +1259,9 @@ func (ms *MatchmakingSession) BuildQuery(latencies []LatencyMetric) (query strin
 	stringProps = make(map[string]string)
 	numericProps = make(map[string]float64, len(latencies))
 	qparts := make([]string, 0, 10)
-	ml := ms.Label
+
 	// SHOULD match this channel
-	chstr := strings.Replace(ms.Label.Channel.String(), "-", "", -1)
+	chstr := strings.Replace(ms.Presence.Memberships[0].ChannelID.String(), "-", "", -1)
 	qparts = append(qparts, fmt.Sprintf("properties.channel:%s^3", chstr))
 	stringProps["channel"] = chstr
 
@@ -1465,17 +1298,17 @@ func (ms *MatchmakingSession) BuildQuery(latencies []LatencyMetric) (query strin
 		}
 	}
 	// MUST be the same mode
-	qparts = append(qparts, GameMode(ml.Mode).Label(Must, 0).Property())
-	stringProps["mode"] = ml.Mode.Token().String()
+	qparts = append(qparts, GameMode(ms.MatchCriteria.Mode).Label(Must, 0).Property())
+	stringProps["mode"] = ms.MatchCriteria.Mode.Token().String()
 
-	for _, groupId := range ml.Broadcaster.Channels {
+	for _, membership := range ms.Presence.Memberships {
 		// Add the properties
 		// Strip out the hyphens from the group ID
-		s := strings.ReplaceAll(groupId.String(), "-", "")
+		s := strings.ReplaceAll(membership.ChannelID.String(), "-", "")
 		stringProps[s] = "T"
 
 		// If this is the user's current channel, then give it a +3 boost
-		if groupId == *ms.Label.Channel {
+		if membership == ms.Presence.Memberships[0] {
 			qparts = append(qparts, fmt.Sprintf("properties.%s:T^3", s))
 		} else {
 			qparts = append(qparts, fmt.Sprintf("properties.%s:T", s))

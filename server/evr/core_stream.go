@@ -14,7 +14,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-playground/validator/v10"
-	"github.com/gofrs/uuid/v5"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -172,10 +171,10 @@ func (s *EasyStream) StreamStruct(obj Serializable) error {
 }
 
 // Stream multiple GUIDs
-func (s *EasyStream) StreamGuids(uuids *[]uuid.UUID) error {
+func (s *EasyStream) StreamGuids(guids []GUID) error {
 	var err error
-	for i := 0; i < len(*uuids); i++ {
-		if err = s.StreamGuid(&(*uuids)[i]); err != nil {
+	for i := 0; i < len(guids); i++ {
+		if err = s.StreamGuid(guids[i]); err != nil {
 			return err
 		}
 	}
@@ -183,31 +182,24 @@ func (s *EasyStream) StreamGuids(uuids *[]uuid.UUID) error {
 }
 
 // Microsoft's GUID has some bytes re-ordered.
-func (s *EasyStream) StreamGuid(uuid *uuid.UUID) error {
+func (s *EasyStream) StreamGuid(guid GUID) error {
+	id := guid
 	var err error
 	var b []byte
-	fn := func(p *[]byte) {
-		b := *p
-		// flip the first four bytes, and the next two pairs
-		b[0], b[1], b[2], b[3] = b[3], b[2], b[1], b[0]
-		b[4], b[5] = b[5], b[4]
-		b[6], b[7] = b[7], b[6]
-	}
+
 	switch s.Mode {
 	case DecodeMode:
 		b = make([]byte, 16)
 		if err = s.StreamBytes(&b, 16); err != nil {
 			return err
 		}
-		fn(&b)
-		if err = uuid.UnmarshalBinary(b); err != nil {
+		if err = id.UnmarshalBinary(b); err != nil {
 			return err
 		}
 	case EncodeMode:
-		if b, err = uuid.MarshalBinary(); err != nil {
+		if b, err = id.MarshalBinary(); err != nil {
 			return err
 		}
-		fn(&b)
 		return s.StreamBytes(&b, 16)
 	default:
 		return errInvalidMode

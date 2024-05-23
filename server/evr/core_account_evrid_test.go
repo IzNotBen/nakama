@@ -21,26 +21,10 @@ func TestEvrId_UUID(t *testing.T) {
 		{
 			name: "valid UUID",
 			fields: fields{
-				PlatformCode: 1,
-				AccountId:    1,
+				PlatformCode: OVR_ORG,
+				AccountId:    123412341234,
 			},
-			want: uuid.FromStringOrNil("496d8944-6159-5c53-bdc8-1cab22f9d28d"),
-		},
-		{
-			name: "invalid PlatformCode",
-			fields: fields{
-				PlatformCode: 0,
-				AccountId:    12341234,
-			},
-			want: uuid.Nil,
-		},
-		{
-			name: "invalid AccountId",
-			fields: fields{
-				PlatformCode: 4,
-				AccountId:    0,
-			},
-			want: uuid.Nil,
+			want: uuid.FromStringOrNil("b4f1ed95-d6c2-543c-a6c8-861048414dd0"),
 		},
 	}
 	for _, tt := range tests {
@@ -50,7 +34,7 @@ func TestEvrId_UUID(t *testing.T) {
 				AccountId:    tt.fields.AccountId,
 			}
 			if got := xpi.UUID(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("EvrId.UUID() = %v, want %v", got, tt.want)
+				t.Errorf("%s = %v, want %v", tt.name, got, tt.want)
 			}
 		})
 	}
@@ -226,7 +210,7 @@ func TestEvrId_MarshalText(t *testing.T) {
 		{
 			name: "valid",
 			fields: fields{
-				PlatformCode: 1,
+				PlatformCode: STM,
 				AccountId:    1,
 			},
 			want:    []byte("STM-1"),
@@ -235,7 +219,7 @@ func TestEvrId_MarshalText(t *testing.T) {
 		{
 			name: "invalid PlatformCode",
 			fields: fields{
-				PlatformCode: 0,
+				PlatformCode: 55,
 				AccountId:    1,
 			},
 			want:    []byte("UNK-1"),
@@ -244,10 +228,10 @@ func TestEvrId_MarshalText(t *testing.T) {
 		{
 			name: "invalid AccountId",
 			fields: fields{
-				PlatformCode: 1,
+				PlatformCode: 4,
 				AccountId:    0,
 			},
-			want:    []byte("STM-0"),
+			want:    []byte("OVR-0"),
 			wantErr: false,
 		},
 		{

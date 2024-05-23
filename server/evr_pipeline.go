@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -23,9 +24,9 @@ import (
 
 var GlobalConfig = &struct {
 	sync.RWMutex
-	rejectMatchmaking bool
+	RejectMatchmaking bool
 }{
-	rejectMatchmaking: true,
+	RejectMatchmaking: true,
 }
 
 type EvrPipeline struct {
@@ -61,15 +62,15 @@ type EvrPipeline struct {
 	matchmakingRegistry *MatchmakingRegistry
 	profileRegistry     *ProfileRegistry
 	discordRegistry     DiscordRegistry
+	broadcasterRegistry *BroadcasterRegistry
 	appBot              *DiscordAppBot
 
-	broadcasterRegistrationBySession *MapOf[string, *MatchBroadcaster] // sessionID -> MatchBroadcaster
-	matchBySessionID                 *MapOf[string, string]            // sessionID -> matchID
-	loginSessionByEvrID              *MapOf[string, *sessionWS]
-	matchByEvrID                     *MapOf[string, string]      // full match string by evrId token
-	backfillQueue                    *MapOf[string, *sync.Mutex] // A queue of backfills to avoid double backfill
-	placeholderEmail                 string
-	linkDeviceURL                    string
+	matchBySessionID    *MapOf[string, MatchID] // sessionID -> matchID
+	loginSessionByEvrID *MapOf[string, *sessionWS]
+	matchByEvrID        *MapOf[string, MatchID]     // full match string by evrId token
+	backfillQueue       *MapOf[string, *sync.Mutex] // A queue of backfills to avoid double backfill
+	placeholderEmail    string
+	linkDeviceURL       string
 }
 
 type ctxDiscordBotTokenKey struct{}
@@ -105,14 +106,19 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 		if err != nil {
 			logger.Error("Unable to create bot")
 		}
+		dg.StateEnabled = true
 	}
 
-	discordRegistry := NewLocalDiscordRegistry(ctx, nk, runtimeLogger, metrics, config, pipeline, dg)
+	logChannelID := vars["DISCORD_LOG_CHANNEL_ID"]
+
+	vrmlBadgeLogChannelID := vars["VRML_BADGE_LOG_CHANNEL_ID"]
+
+	discordRegistry := NewLocalDiscordRegistry(ctx, nk, runtimeLogger, metrics, config, pipeline, dg, logChannelID)
 	profileRegistry := NewProfileRegistry(nk, db, runtimeLogger, discordRegistry)
 
-	appBot := NewDiscordAppBot(nk, runtimeLogger, metrics, pipeline, config, discordRegistry, profileRegistry, dg)
+	appBot := NewDiscordAppBot(nk, runtimeLogger, metrics, pipeline, config, discordRegistry, profileRegistry, dg, vrmlBadgeLogChannelID)
 
-	if disable, ok := vars["DISABLE_DISCORD_BOT"]; ok && disable == "true" {
+	if disable, ok := vars["DISABLE_DISCORD_RESPONSE_HANDLERS"]; ok && disable == "true" {
 		logger.Info("Discord bot is disabled")
 	} else {
 		if err := appBot.InitializeDiscordBot(); err != nil {
@@ -141,6 +147,7 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 	if err != nil {
 		logger.Fatal("Failed to authenticate broadcaster", zap.Error(err))
 	}
+	broadcasterRegistry := NewBroadcasterRegistry(logger, metrics)
 
 	evrPipeline := &EvrPipeline{
 		ctx:                  ctx,
@@ -173,11 +180,11 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 
 		profileRegistry: profileRegistry,
 
-		broadcasterRegistrationBySession: &MapOf[string, *MatchBroadcaster]{},
-		matchBySessionID:                 &MapOf[string, string]{},
-		loginSessionByEvrID:              &MapOf[string, *sessionWS]{},
-		matchByEvrID:                     &MapOf[string, string]{},
-		backfillQueue:                    &MapOf[string, *sync.Mutex]{},
+		broadcasterRegistry: broadcasterRegistry,
+		matchBySessionID:    &MapOf[string, MatchID]{},
+		loginSessionByEvrID: &MapOf[string, *sessionWS]{},
+		matchByEvrID:        &MapOf[string, MatchID]{},
+		backfillQueue:       &MapOf[string, *sync.Mutex]{},
 
 		placeholderEmail: config.GetRuntime().Environment["PLACEHOLDER_EMAIL_DOMAIN"],
 		linkDeviceURL:    config.GetRuntime().Environment["LINK_DEVICE_URL"],
@@ -190,7 +197,7 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 		}
 	}()
 
-	// Create a timer to periodically clear the backfill queue
+	// Create a timer to periodically clear the queues and caches
 	go func() {
 		interval := 3 * time.Minute
 		ticker := time.NewTicker(interval)
@@ -201,50 +208,46 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 				return
 
 			case <-ticker.C:
-				evrPipeline.backfillQueue.Range(func(key string, value *sync.Mutex) bool {
-					if value.TryLock() {
-						evrPipeline.backfillQueue.Delete(key)
-						value.Unlock()
-					}
-					return true
-				})
-
-				evrPipeline.broadcasterRegistrationBySession.Range(func(key string, value *MatchBroadcaster) bool {
-					if sessionRegistry.Get(uuid.FromStringOrNil(value.SessionID)) == nil {
-						logger.Debug("Housekeeping: Session not found for broadcaster", zap.String("sessionID", value.SessionID))
-						evrPipeline.broadcasterRegistrationBySession.Delete(key)
-					}
-					return true
-				})
-
-				evrPipeline.loginSessionByEvrID.Range(func(key string, value *sessionWS) bool {
-					if sessionRegistry.Get(value.ID()) == nil {
-						logger.Debug("Housekeeping: Session not found for evrID", zap.String("evrID", key))
-						evrPipeline.loginSessionByEvrID.Delete(key)
-					}
-					return true
-				})
-
-				evrPipeline.matchBySessionID.Range(func(key string, value string) bool {
-					if sessionRegistry.Get(uuid.FromStringOrNil(key)) == nil {
-						logger.Debug("Housekeeping: Session not found for matchID", zap.String("matchID", value))
-						evrPipeline.matchBySessionID.Delete(key)
-					}
-					return true
-				})
-
-				evrPipeline.matchByEvrID.Range(func(key string, value string) bool {
-					if match, _, _ := matchRegistry.GetMatch(ctx, value); match == nil {
-						logger.Debug("Housekeeping: Match not found for evrID", zap.String("evrID", key), zap.String("matchID", value))
-						evrPipeline.matchByEvrID.Delete(key)
-					}
-					return true
-				})
+				evrPipeline.expireCaches(evrPipeline.ctx)
 			}
 		}
 	}()
 
 	return evrPipeline
+}
+
+func (p *EvrPipeline) expireCaches(ctx context.Context) {
+	p.backfillQueue.Range(func(key string, value *sync.Mutex) bool {
+		if value.TryLock() {
+			p.backfillQueue.Delete(key)
+			value.Unlock()
+		}
+		return true
+	})
+
+	p.loginSessionByEvrID.Range(func(key string, value *sessionWS) bool {
+		if p.sessionRegistry.Get(value.ID()) == nil {
+			p.logger.Debug("Housekeeping: Session not found for evrID", zap.String("evrID", key))
+			p.loginSessionByEvrID.Delete(key)
+		}
+		return true
+	})
+
+	p.matchBySessionID.Range(func(key string, value MatchID) bool {
+		if p.sessionRegistry.Get(uuid.FromStringOrNil(key)) == nil {
+			p.logger.Debug("Housekeeping: Session not found for matchID", zap.String("matchID", value.String()))
+			p.matchBySessionID.Delete(key)
+		}
+		return true
+	})
+
+	p.matchByEvrID.Range(func(key string, value MatchID) bool {
+		if match, _, _ := p.matchRegistry.GetMatch(ctx, value.String()); match == nil {
+			p.logger.Debug("Housekeeping: Match not found for evrID", zap.String("evrID", key), zap.String("matchID", value.String()))
+			p.matchByEvrID.Delete(key)
+		}
+		return true
+	})
 }
 
 func clearLinkTickets(ctx context.Context, logger *zap.Logger, nk runtime.NakamaModule) error {
@@ -293,24 +296,20 @@ func (p *EvrPipeline) ProcessRequestEvr(logger *zap.Logger, session *sessionWS, 
 
 	var pipelineFn func(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error
 
-	requireAuthed := true
-
 	switch in.(type) {
+
 	// Config service
 	case *evr.ConfigRequest:
-		requireAuthed = false
 		pipelineFn = p.configRequest
 
-	// Transaction (IAP) service
-	case *evr.ReconcileIAP:
-		requireAuthed = false
+		// Transaction (IAP) service
+	case *evr.IAPReconcile:
 		pipelineFn = p.reconcileIAP
 
-	// Login Service
+		// Login Service
 	case *evr.RemoteLogSet:
 		pipelineFn = p.remoteLogSetv3
 	case evr.LoginRequest:
-		requireAuthed = false
 		pipelineFn = p.loginRequest
 	case *evr.DocumentRequest:
 		pipelineFn = p.documentRequest
@@ -345,10 +344,10 @@ func (p *EvrPipeline) ProcessRequestEvr(logger *zap.Logger, session *sessionWS, 
 
 	// ServerDB service
 	case *evr.BroadcasterRegistrationRequest:
-		requireAuthed = false
+
 		pipelineFn = p.broadcasterRegistrationRequest
 	case *evr.BroadcasterSessionEnded:
-		pipelineFn = p.broadcasterSessionEnded
+		pipelineFn = p.relayMatchData
 	case *evr.BroadcasterPlayersAccept:
 		pipelineFn = p.relayMatchData
 	case *evr.BroadcasterSessionStarted:
@@ -371,27 +370,78 @@ func (p *EvrPipeline) ProcessRequestEvr(logger *zap.Logger, session *sessionWS, 
 		}
 	}
 
-	// If the message requires authentication, check if the session is authenticated.
-	if requireAuthed {
-		// If the message is an identifying message, validate the session and evr id.
-		if idmessage, ok := in.(evr.IdentifyingMessage); ok {
+	switch msg := in.(type) {
+	case evr.LoginRequest, *evr.BroadcasterRegistrationRequest:
+		// login requests and braodcasters registration requests are first step in the pipeline
 
-			if err := session.ValidateSession(idmessage.GetSessionID(), idmessage.GetEvrID()); err != nil {
-				logger.Error("Invalid session", zap.Error(err))
+	case *evr.ConfigRequest, *evr.IAPReconcile:
+		// If the message is a config request or an IAP request, do not require authentication.
 
-				// Disconnect the client if the session is invalid.
-				return false
-			}
+	case evr.IdentifyingMessage:
+		if err := session.ValidateSession(msg.GetSessionID(), msg.GetEvrID()); err != nil {
+			logger.Error("Invalid session", zap.Error(err))
+			// Disconnect the client if the session is invalid.
+			return false
 		}
+
 		// If the session is not authenticated, log the error and return.
 		if session != nil && session.UserID() == uuid.Nil {
-			logger.Error("Session not authenticated")
+			logger.Debug("Session not authenticated. Attempting out of band authentication.")
 			// As a work around to the serverdb connection getting lost and needing to reauthenticate
 			err := p.attemptOutOfBandAuthentication(session)
 			if err != nil {
 				// If the session is now authenticated, continue processing the request.
 				logger.Error("Failed to authenticate session with discordId and password", zap.Error(err))
 				return false
+			}
+		}
+	}
+
+	ctx := session.Context()
+
+	// Check matchmaking permission before processing the request
+
+	switch msg := in.(type) {
+	case evr.LobbySessionRequest:
+		response := NewMatchmakingResult(session, logger, msg.GetMode(), msg.GetChannel())
+
+		// Only bots may join multiple matches
+		if flags, ok := ctx.Value(ctxFlagsKey{}).(SessionFlags); ok {
+			if !flags.MultiSession && !flags.IsDeveloper {
+				EnforceSingleMatch(logger, session)
+			}
+		}
+
+		// Get a specific channel
+		memberships := ctx.Value(ctxChannelsKey{}).(Memberships)
+		channel := msg.GetChannel()
+		if channel == evr.GUID(uuid.Nil) {
+			// Use the first channel
+			membership := memberships.GetPrimary()
+			if membership == nil {
+				err := response.SendErrorToSession(fmt.Errorf("no available channels"))
+				if err != nil {
+					logger.Error("Failed to send error to session", zap.Error(err))
+				}
+				return false
+			}
+		}
+
+		// Add the matchamking session metadata
+		if err := session.MatchSession(); err != nil {
+			err := response.SendErrorToSession(err)
+			if err != nil {
+				logger.Error("Failed to send error to session", zap.Error(err))
+			}
+			return false
+		}
+
+		for _, ch := range channels {
+			if ch.ChannelID == channel && ch.isSuspended {
+				err := response.SendErrorToSession(fmt.Errorf("channel %s is suspended", channel))
+				if err != nil {
+					logger.Error("Failed to send error to session", zap.Error(err))
+				}
 			}
 		}
 	}
@@ -427,7 +477,7 @@ func ProcessOutgoing(logger *zap.Logger, session *sessionWS, in *rtapi.Envelope)
 	case *rtapi.Envelope_MatchPresenceEvent:
 		envelope := in.GetMatchPresenceEvent()
 		userID := session.UserID().String()
-		matchID := envelope.GetMatchId()
+		matchID := MatchIDFromStringOrNil(envelope.GetMatchId())
 
 		for _, leave := range envelope.GetLeaves() {
 			if leave.GetUserId() != userID {
@@ -444,22 +494,18 @@ func ProcessOutgoing(logger *zap.Logger, session *sessionWS, in *rtapi.Envelope)
 
 			p.matchBySessionID.Store(session.ID().String(), matchID)
 
-			if _, ok := p.broadcasterRegistrationBySession.Load(session.ID().String()); !ok {
-				// This is a player connection
-				if evrId, ok := session.Context().Value(ctxEvrIDKey{}).(evr.EvrId); ok {
-					p.matchByEvrID.Store(evrId.Token(), matchID)
-				}
+			if evrId, ok := session.Context().Value(ctxEvrIDKey{}).(evr.EvrId); ok {
+				p.matchByEvrID.Store(evrId.Token(), matchID)
 			}
 
 			go func() {
 				// Remove the match lookup entries when the session is closed.
 				<-session.Context().Done()
-				if _, isBroadcaster := p.broadcasterRegistrationBySession.Load(session.ID().String()); !isBroadcaster {
-					// This is a player connection
-					if evrId, ok := session.Context().Value(ctxEvrIDKey{}).(evr.EvrId); ok {
-						p.matchByEvrID.Delete(evrId.Token())
-					}
+
+				if evrId, ok := session.Context().Value(ctxEvrIDKey{}).(evr.EvrId); ok {
+					p.matchByEvrID.Delete(evrId.Token())
 				}
+
 				p.matchBySessionID.Delete(session.ID().String())
 			}()
 		}
@@ -480,11 +526,11 @@ func ProcessOutgoing(logger *zap.Logger, session *sessionWS, in *rtapi.Envelope)
 
 // relayMatchData relays the data to the match by determining the match id from the session or user id.
 func (p *EvrPipeline) relayMatchData(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
-	var matchIDStr string
+	var matchID MatchID
 	var found bool
 
 	// Try to load the match ID from the session ID (this is how broadcasters can be found)
-	matchIDStr, found = p.matchBySessionID.Load(session.ID().String())
+	matchID, found = p.matchBySessionID.Load(session.ID().String())
 	if !found {
 		// Try to load the match ID from the presence stream
 		sessionIDs := session.tracker.ListLocalSessionIDByStream(PresenceStream{Mode: StreamModeEvr, Subject: session.id, Subcontext: StreamContextMatch})
@@ -493,14 +539,14 @@ func (p *EvrPipeline) relayMatchData(ctx context.Context, logger *zap.Logger, se
 		}
 		sessionID := sessionIDs[0]
 
-		matchIDStr, found = p.matchBySessionID.Load(sessionID.String())
+		matchID, found = p.matchBySessionID.Load(sessionID.String())
 
 		if !found {
 			return fmt.Errorf("no match found for user %s session: %s", session.UserID(), session.ID())
 		}
 	}
 
-	err := sendMatchData(p.matchRegistry, matchIDStr, session, in)
+	err := sendMatchData(p.matchRegistry, matchID, session, in)
 	if err != nil {
 		return fmt.Errorf("failed to send match data: %w", err)
 	}
@@ -509,8 +555,7 @@ func (p *EvrPipeline) relayMatchData(ctx context.Context, logger *zap.Logger, se
 }
 
 // sendMatchData sends the data to the match.
-func sendMatchData(matchRegistry MatchRegistry, matchIDStr string, session *sessionWS, in evr.Message) error {
-	token := MatchToken(matchIDStr)
+func sendMatchData(matchRegistry MatchRegistry, matchID MatchID, session *sessionWS, in evr.Message) error {
 
 	requestJson, err := json.Marshal(in)
 	if err != nil {
@@ -520,10 +565,13 @@ func sendMatchData(matchRegistry MatchRegistry, matchIDStr string, session *sess
 	// Set the OpCode to the symbol of the message.
 	opCode := int64(evr.SymbolOf(in))
 	// Send the data to the match.
-	matchRegistry.SendData(token.ID(), token.Node(), session.UserID(), session.ID(), session.Username(), token.Node(), opCode, requestJson, true, time.Now().UTC().UnixNano()/int64(time.Millisecond))
+	matchRegistry.SendData(matchID.uuid, matchID.Node(), session.UserID(), session.ID(), session.Username(), matchID.Node(), opCode, requestJson, true, time.Now().UTC().UnixNano()/int64(time.Millisecond))
 
 	return nil
 }
+
+var ErrOutOfBandAuthFailure = errors.New("out of band authentication failed")
+var ErrNoAuthProvided = errors.Join(ErrOutOfBandAuthFailure, errors.New("no authentication provided"))
 
 // configRequest handles the config request.
 func (p *EvrPipeline) attemptOutOfBandAuthentication(session *sessionWS) error {
@@ -532,34 +580,30 @@ func (p *EvrPipeline) attemptOutOfBandAuthentication(session *sessionWS) error {
 	if session.UserID() != uuid.Nil {
 		return nil
 	}
-	userPassword, ok := ctx.Value(ctxPasswordKey{}).(string)
-	if !ok {
-		return nil
-	}
 
-	discordId, ok := ctx.Value(ctxDiscordIdKey{}).(string)
+	// Get the email and password from the basic auth.
+	discordAuthID, userPassword, ok := parseBasicAuth(ctx.Value(ctxBasicAuthKey{}).(string))
 	if !ok {
-		return nil
+		return ErrNoAuthProvided
 	}
-
-	// Get the account for this discordId
-	uid, err := p.discordRegistry.GetUserIdByDiscordId(ctx, discordId, false)
+	// Get the account for this discordID
+	uid, err := p.discordRegistry.GetUserIdByDiscordId(ctx, discordAuthID, false)
 	if err != nil {
-		return fmt.Errorf("out of band for discord ID %s: %v", discordId, err)
+		return errors.Join(ErrOutOfBandAuthFailure, fmt.Errorf("failed to get user id by discord id %s: %w", discordAuthID, err))
 	}
-	userId := uid.String()
+	userID := uid.String()
 
 	// The account was found.
-	account, err := GetAccount(ctx, session.logger, session.pipeline.db, session.statusRegistry, uuid.FromStringOrNil(userId))
+	account, err := GetAccount(ctx, session.logger, session.pipeline.db, session.statusRegistry, uuid.FromStringOrNil(userID))
 	if err != nil {
-		return fmt.Errorf("out of band Auth: %s: %v", discordId, err)
+		return errors.Join(ErrOutOfBandAuthFailure, fmt.Errorf("failed to get account: %w", err))
 	}
 
 	// Do email authentication
-	userId, username, _, err := AuthenticateEmail(ctx, session.logger, session.pipeline.db, account.Email, userPassword, "", false)
+	userID, username, _, err := AuthenticateEmail(ctx, session.logger, session.pipeline.db, account.Email, userPassword, "", false)
 	if err != nil {
-		return fmt.Errorf("out of band Auth: %s: %v", discordId, err)
+		return errors.Join(ErrOutOfBandAuthFailure, fmt.Errorf("failed to authenticate email: %w", err))
 	}
 
-	return session.BroadcasterSession(userId, "broadcaster:"+username)
+	return session.BroadcasterSession(userID, "broadcaster:"+username)
 }

@@ -3,14 +3,12 @@ package evr
 import (
 	"fmt"
 	"strings"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 // Game Server -> Nakama: player sessions that the server intends to accept.
 
 type BroadcasterPlayersAccept struct {
-	PlayerSessions []uuid.UUID
+	PlayerSessions []GUID
 }
 
 func (m BroadcasterPlayersAccept) Symbol() Symbol {
@@ -21,7 +19,7 @@ func (m BroadcasterPlayersAccept) Token() string {
 }
 
 // NewERGameServerAcceptPlayersWithSessions initializes a new ERGameServerAcceptPlayers with the provided arguments.
-func NewBroadcasterPlayersAccept(playerSessions []uuid.UUID) *BroadcasterPlayersAccept {
+func NewBroadcasterPlayersAccept(playerSessions []GUID) *BroadcasterPlayersAccept {
 	return &BroadcasterPlayersAccept{
 		PlayerSessions: playerSessions,
 	}
@@ -31,9 +29,9 @@ func (m *BroadcasterPlayersAccept) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error {
 			if s.Mode == DecodeMode {
-				m.PlayerSessions = make([]uuid.UUID, s.Len()/16)
+				m.PlayerSessions = make([]GUID, s.Len()/16)
 			}
-			return s.StreamGuids(&m.PlayerSessions)
+			return s.StreamGuids(m.PlayerSessions)
 		},
 	})
 }

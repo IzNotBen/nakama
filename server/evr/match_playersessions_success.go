@@ -4,30 +4,28 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 type LobbyPlayerSessionsSuccess struct {
-	MatchingSession uuid.UUID   // Unk1, The matching-related session token for the current matchmaker operation.
-	PlayerSessions  []uuid.UUID // Unk1, The player session token obtained for the requested player user identifier.
+	MatchingSession GUID   // Unk1, The matching-related session token for the current matchmaker operation.
+	PlayerSessions  []GUID // Unk1, The player session token obtained for the requested player user identifier.
 
-	Unk0          byte      // V2, V3
-	EvrId         EvrId     // V2, V3
-	PlayerSession uuid.UUID // V2, V3
-	TeamIndex     int16     // V3
-	Unk1          uint16    // V3
-	Unk2          uint32    // V3
+	Unk0          byte   // V2, V3
+	EvrId         EvrId  // V2, V3
+	PlayerSession GUID   // V2, V3
+	TeamIndex     int16  // V3
+	Unk1          uint16 // V3
+	Unk2          uint32 // V3
 }
 
-func NewLobbyPlayerSessionsSuccess(evrId EvrId, matchingSession uuid.UUID, playerSession uuid.UUID, playerSessions []uuid.UUID, teamIndex int16) *LobbyPlayerSessionsSuccess {
+func NewLobbyPlayerSessionsSuccess(evrId EvrId, matchingSession GUID, playerSession GUID, playerSessions []GUID, Role Role) *LobbyPlayerSessionsSuccess {
 	return &LobbyPlayerSessionsSuccess{
 		MatchingSession: matchingSession,
 		PlayerSessions:  playerSessions,
 		Unk0:            0xFF,
 		EvrId:           evrId,
 		PlayerSession:   playerSession,
-		TeamIndex:       teamIndex,
+		TeamIndex:       int16(Role),
 		Unk1:            0,
 		Unk2:            0,
 	}
@@ -63,12 +61,12 @@ func (m *LobbyPlayerSessionsSuccessUnk1) Stream(s *EasyStream) error {
 
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &count) },
-		func() error { return s.StreamGuid(&m.MatchingSession) },
+		func() error { return s.StreamGuid(m.MatchingSession) },
 		func() error {
 			if s.Mode == DecodeMode {
-				m.PlayerSessions = make([]uuid.UUID, s.Len()/16)
+				m.PlayerSessions = make([]GUID, s.Len()/16)
 			}
-			return s.StreamGuids(&m.PlayerSessions)
+			return s.StreamGuids(m.PlayerSessions)
 		},
 	})
 }
@@ -95,7 +93,7 @@ func (m *LobbyPlayerSessionsSuccessv3) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamStruct(&m.EvrId) },
-		func() error { return s.StreamGuid(&m.PlayerSession) },
+		func() error { return s.StreamGuid(m.PlayerSession) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk2) },
@@ -123,7 +121,7 @@ func (m *LobbyPlayerSessionsSuccessv2) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamStruct(&m.EvrId) },
-		func() error { return s.StreamGuid(&m.PlayerSession) },
+		func() error { return s.StreamGuid(m.PlayerSession) },
 	})
 }
 

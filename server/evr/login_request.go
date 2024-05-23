@@ -3,12 +3,10 @@ package evr
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 type LoginRequest interface {
-	GetSessionID() uuid.UUID
+	GetSessionID() GUID
 	GetEvrID() EvrId
 	GetLoginProfile() LoginProfile
 }
@@ -17,7 +15,7 @@ var _ = LoginRequest(&LoginRequestV2{})
 
 // LoginRequestV2 represents a message from client to server requesting for a user sign-in.
 type LoginRequestV2 struct {
-	Session uuid.UUID    `json:"Session"` // This is the old session id, if it had one.
+	Session GUID         `json:"Session"` // This is the old session id, if it had one.
 	EvrId   EvrId        `json:"UserId"`
 	Profile LoginProfile `json:"LoginData"`
 }
@@ -26,7 +24,7 @@ func (lr LoginRequestV2) GetEvrID() EvrId {
 	return lr.EvrId
 }
 
-func (m LoginRequestV2) GetSessionID() uuid.UUID {
+func (m LoginRequestV2) GetSessionID() GUID {
 	return m.Session
 }
 
@@ -40,14 +38,14 @@ func (lr LoginRequestV2) String() string {
 
 func (m *LoginRequestV2) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
+		func() error { return s.StreamGuid(m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
 		func() error { return s.StreamJson(&m.Profile, true, NoCompression) },
 	})
 }
 
-func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfile) (*LoginRequestV2, error) {
+func NewLoginRequest(session GUID, userId EvrId, loginData LoginProfile) (*LoginRequestV2, error) {
 	return &LoginRequestV2{
 		Session: session,
 		EvrId:   userId,

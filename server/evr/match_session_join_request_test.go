@@ -1,6 +1,7 @@
 package evr
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/gofrs/uuid/v5"
@@ -27,6 +28,8 @@ func TestLobbyJoinSessionRequest_LobbyID(t *testing.T) {
 		0x29, 0xef, 0x14, 0x0e, 0x00, 0xff, 0xff, 0x0a,
 	}
 
+	codec := NewCodec(nil)
+
 	b, err := codec.Wrap(SymbolOf(&LobbyJoinSessionRequest{}), data)
 	if err != nil {
 		t.Error(err)
@@ -42,25 +45,32 @@ func TestLobbyJoinSessionRequest_LobbyID(t *testing.T) {
 	}
 
 	want := LobbyJoinSessionRequest{
-		MatchID:        uuid.FromStringOrNil("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b"),
+		MatchID:        GUID(uuid.FromStringOrNil("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b")),
 		VersionLock:    -4166109104957845235,
 		Platform:       ToSymbol("OVR"),
-		LoginSessionID: uuid.Must(uuid.FromString("648e6301-fbb9-11ee-ad13-66d3ff8a653b")),
-		Unk1:           1,
-		Unk2:           3,
+		LoginSessionID: GUID(uuid.Must(uuid.FromString("648e6301-fbb9-11ee-ad13-66d3ff8a653b"))),
+
+		Flags: 3,
 		SessionSettings: SessionSettings{
-			AppID: "1369078409873402",
+			AppID: 1369078409873402,
 			Mode:  0,
-			Level: nil,
+			Level: 0,
 		},
-		EvrId:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-		TeamIndex: -1,
+		Entrants: []Entrant{
+			{
+				EvrID:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
+				Alignment: -1,
+			},
+		},
 	}
 
-	if cmp.Equal(got, want) {
-		t.Errorf("\ngot  %s\nwant %s", got.String(), want.String())
-	}
+	// compare the two using a third-party library
 
+	if !reflect.DeepEqual(*got, want) {
+		if diff := cmp.Diff(*got, want); diff != "" {
+			t.Errorf("mismatch (-got +want):\n%s", diff)
+		}
+	}
 }
 
 func TestLobbyJoinSessionRequest_Moderator(t *testing.T) {
@@ -82,6 +92,8 @@ func TestLobbyJoinSessionRequest_Moderator(t *testing.T) {
 		0x29, 0xef, 0x14, 0x0e, 0x00, 0x04, 0x00, 0x0a,
 	}
 
+	codec := NewCodec(nil)
+
 	b, err := codec.Wrap(SymbolOf(&LobbyJoinSessionRequest{}), data)
 	if err != nil {
 		t.Error(err)
@@ -97,23 +109,29 @@ func TestLobbyJoinSessionRequest_Moderator(t *testing.T) {
 	}
 
 	want := LobbyJoinSessionRequest{
-		MatchID:        uuid.FromStringOrNil("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b"),
+		MatchID:        GUID(uuid.FromStringOrNil("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b")),
 		VersionLock:    -4166109104957845235,
 		Platform:       ToSymbol("OVR"),
-		LoginSessionID: uuid.Must(uuid.FromString("e8f83121-fbb8-11ee-9182-66d3ff8a653b")),
-		Unk1:           1,
-		Unk2:           3,
+		LoginSessionID: GUID(uuid.Must(uuid.FromString("e8f83121-fbb8-11ee-9182-66d3ff8a653b"))),
+
+		Flags: 3,
 		SessionSettings: SessionSettings{
-			AppID: "1369078409873402",
+			AppID: 1369078409873402,
 			Mode:  0,
-			Level: nil,
+			Level: 0,
 		},
-		EvrId:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-		TeamIndex: 4,
+		Entrants: []Entrant{
+			{
+				EvrID:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
+				Alignment: -1,
+			},
+		},
 	}
 
-	if cmp.Equal(got, want) {
-		t.Errorf("\ngot  %s\nwant %s", got.String(), want.String())
+	if !reflect.DeepEqual(*got, want) {
+		if diff := cmp.Diff(*got, want); diff != "" {
+			t.Errorf("mismatch (-got +want):\n%s", diff)
+		}
 	}
 
 }
@@ -137,6 +155,8 @@ func TestLobbyJoinSessionRequest_ModerateUser(t *testing.T) {
 		0x29, 0xef, 0x14, 0x0e, 0x00, 0x04, 0x00, 0x0a,
 	}
 
+	codec := NewCodec(nil)
+
 	b, err := codec.Wrap(SymbolOf(&LobbyJoinSessionRequest{}), data)
 	if err != nil {
 		t.Error(err)
@@ -152,24 +172,28 @@ func TestLobbyJoinSessionRequest_ModerateUser(t *testing.T) {
 	}
 
 	want := LobbyJoinSessionRequest{
-		MatchID:        uuid.Nil,
-		VersionLock:    -4166109104957845235,
+		MatchID:        GUID(uuid.Nil),
+		VersionLock:    1,
 		Platform:       ToSymbol("OVR"),
-		LoginSessionID: uuid.Must(uuid.FromString("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b")),
-		Unk1:           1,
-		Unk2:           11,
+		LoginSessionID: GUID(uuid.Must(uuid.FromString("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b"))),
+		OtherEvrID:     *lo.Must(ParseEvrId("DMO-1")),
+		Flags:          11,
 		SessionSettings: SessionSettings{
-			AppID: "1369078409873402",
+			AppID: 1369078409873402,
 			Mode:  0,
-			Level: nil,
+			Level: 0,
 		},
-		EvrId:      *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-		OtherEvrID: *lo.Must(ParseEvrId("DMO-1")),
-		TeamIndex:  4,
+		Entrants: []Entrant{
+			{
+				EvrID:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
+				Alignment: -1,
+			},
+		},
 	}
 
-	if cmp.Equal(got, want) {
-		t.Errorf("\ngot  %s\nwant %s", got.String(), want.String())
+	if !reflect.DeepEqual(*got, want) {
+		if diff := cmp.Diff(*got, want); diff != "" {
+			t.Errorf("mismatch (-got +want):\n%s", diff)
+		}
 	}
-
 }

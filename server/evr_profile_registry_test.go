@@ -25,7 +25,7 @@ func createTestProfileRegistry(t *testing.T, logger *zap.Logger) (*ProfileRegist
 	db := NewDB(t)
 	nk := NewRuntimeGoNakamaModule(logger, db, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	discordRegistry := NewLocalDiscordRegistry(context.Background(), nk, runtimeLogger, metrics, config, nil, dg)
+	discordRegistry := NewLocalDiscordRegistry(context.Background(), nk, runtimeLogger, metrics, config, nil, dg, "")
 	profileRegistry := NewProfileRegistry(nk, db, runtimeLogger, discordRegistry)
 
 	return profileRegistry, nil
@@ -107,7 +107,7 @@ func TestGetSessionProfile(t *testing.T) {
 
 	// Call the GetSessionProfile method
 
-	p, err := profileRegistry.GetSessionProfile(ctx, session, loginProfile, *evrID)
+	p, err := profileRegistry.GetSessionProfile(ctx, session, loginProfile, *evrID, make([]ChannelMember, 0))
 	if err != nil {
 		t.Fatalf("GetSessionProfile returned an error: %v", err)
 	}

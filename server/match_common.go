@@ -35,14 +35,14 @@ type blugeMatch struct {
 }
 
 type BlugeResult struct {
-	Hits []*blugeMatch
+	Hits []*blugeBroadcaster
 }
 
 func IterateBlugeMatches(dmi search.DocumentMatchIterator, loadFields map[string]struct{}, logger *zap.Logger) (*BlugeResult, error) {
 	rv := &BlugeResult{}
 	dm, err := dmi.Next()
 	for dm != nil && err == nil {
-		var bm blugeMatch
+		var bm blugeBroadcaster
 		bm.Fields = make(map[string]interface{})
 		err = dm.VisitStoredFields(func(field string, value []byte) bool {
 			if field == "_id" {

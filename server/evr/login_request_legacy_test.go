@@ -6,16 +6,16 @@ import (
 )
 
 func TestLoginRequestV1Decode(t *testing.T) {
-
+	codec := NewCodec(nil)
 	// Add the header, symbol and size to the data
 
-	packet, err := WrapBytes(SymbolOf(&LoginRequestV1{}), testLoginRequestV1Data)
+	packet, err := codec.wrap(uint64(SymbolOf(&LoginRequestV1{})), testLoginRequestV1Data)
 	if err != nil {
 		t.Errorf("Marshal returned an error: %v", err)
 	}
 
 	// Unmarshal test packet
-	msgs, err := ParsePacket(packet)
+	msgs, err := codec.Unmarshal(packet)
 	if err != nil {
 		t.Errorf("Unmarshal returned an error: %v", err)
 	}

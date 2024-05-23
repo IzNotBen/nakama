@@ -10,20 +10,6 @@ import (
 )
 
 // PlatformCode represents the platforms on which a client may be operating.
-type PlatformCode uint64
-
-const (
-	XPlatformIdSize = 16 // 16 bytes
-
-	STM     PlatformCode = iota // Steam
-	PSN                         // Playstation
-	XBX                         // Xbox
-	OVR_ORG                     // Oculus VR user
-	OVR                         // Oculus VR
-	BOT                         // Bot/AI
-	DMO                         // Demo (no ovr)
-	TEN                         // Tencent
-)
 
 // EvrId represents an identifier for a user on the platform.
 type EvrId struct {
@@ -127,6 +113,23 @@ func NewEchoUserId(platformCode PlatformCode, accountId uint64) *EvrId {
 	return &EvrId{PlatformCode: platformCode, AccountId: accountId}
 }
 
+const (
+	STM     PlatformCode = iota // Steam
+	PSN                         // Playstation
+	XBX                         // Xbox
+	OVR_ORG                     // Oculus VR user
+	OVR                         // Oculus VR
+	BOT                         // Bot/AI
+	DMO                         // Demo (no ovr)
+	TEN                         // Tencent
+)
+
+type PlatformCode uint16
+
+func (xpi PlatformCode) Symbol() Symbol {
+	return ToSymbol(strings.Replace(xpi.Abbrevation(), "_", "-", -1))
+}
+
 // GetPrefix obtains a platform prefix string for a given PlatformCode.
 func (code PlatformCode) GetPrefix() string {
 	// Try to obtain a name for this platform code.
@@ -202,7 +205,7 @@ func (code PlatformCode) Abbrevation() string {
 	case TEN:
 		return "TEN" // TODO: Verify, this is only suspected to be the target of "TEN".
 	default:
-		return "UNK"
+		return "XPI" + strconv.Itoa(int(code))
 	}
 }
 

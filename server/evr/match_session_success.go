@@ -3,15 +3,13 @@ package evr
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 // LobbySessionSuccess represents a message from server to client indicating that a request to create/join/find a game server session succeeded.
 type LobbySessionSuccess struct {
 	GameMode           Symbol
-	MatchID            uuid.UUID
-	ChannelID          uuid.UUID // V5 only
+	MatchID            GUID
+	ChannelID          GUID // V5 only
 	Endpoint           Endpoint
 	TeamIndex          int16
 	Unk1               uint32
@@ -28,14 +26,14 @@ type LobbySessionSuccess struct {
 }
 
 // NewLobbySessionSuccessv5 initializes a new LobbySessionSuccessv5 message.
-func NewLobbySessionSuccess(mode Symbol, matchingSession uuid.UUID, channel uuid.UUID, endpoint Endpoint, teamIndex int16, disableSecurity bool) *LobbySessionSuccess {
+func NewLobbySessionSuccess(mode Symbol, matchingSession GUID, channel GUID, endpoint Endpoint, teamIndex Role, disableSecurity bool) *LobbySessionSuccess {
 	s := DefaultEncoderSettings(disableSecurity)
 	return &LobbySessionSuccess{
 		GameMode:           mode,
 		MatchID:            matchingSession,
 		ChannelID:          channel,
 		Endpoint:           endpoint,
-		TeamIndex:          teamIndex,
+		TeamIndex:          int16(teamIndex),
 		Unk1:               0,
 		ServerEncoderFlags: s.ToFlags(),
 		ClientEncoderFlags: s.ToFlags(),
@@ -87,7 +85,7 @@ func (m *LobbySessionSuccessv4) Stream(s *EasyStream) error {
 
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameMode) },
-		func() error { return s.StreamGuid(&m.MatchID) },
+		func() error { return s.StreamGuid(m.MatchID) },
 		func() error { return s.StreamStruct(&m.Endpoint) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
@@ -132,8 +130,8 @@ func (m *LobbySessionSuccessv5) Stream(s *EasyStream) error {
 	var ce *PacketEncoderSettings
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameMode) },
-		func() error { return s.StreamGuid(&m.MatchID) },
-		func() error { return s.StreamGuid(&m.ChannelID) },
+		func() error { return s.StreamGuid(m.MatchID) },
+		func() error { return s.StreamGuid(m.ChannelID) },
 		func() error { return s.StreamStruct(&m.Endpoint) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },

@@ -3,14 +3,12 @@ package evr
 import (
 	"fmt"
 	"strings"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 // Nakama -> Game Server: player sessions that are to be kicked/rejected.
 type BroadcasterPlayersRejected struct {
 	ErrorCode      PlayerRejectionReason
-	PlayerSessions []uuid.UUID
+	PlayerSessions []GUID
 }
 
 func (m *BroadcasterPlayersRejected) Token() string {
@@ -38,7 +36,7 @@ const (
 )
 
 // NewGameServerPlayersRejected initializes a new GameServerPlayersRejected message with the provided arguments.
-func NewBroadcasterPlayersRejected(errorCode PlayerRejectionReason, playerSessions ...uuid.UUID) *BroadcasterPlayersRejected {
+func NewBroadcasterPlayersRejected(errorCode PlayerRejectionReason, playerSessions ...GUID) *BroadcasterPlayersRejected {
 	return &BroadcasterPlayersRejected{
 		ErrorCode:      errorCode,
 		PlayerSessions: playerSessions,
@@ -56,10 +54,10 @@ func (m *BroadcasterPlayersRejected) Stream(s *EasyStream) error {
 			// Consume/Produce all UUIDs until the end of the packet.
 			if s.Mode == DecodeMode {
 				endpointCount := (s.r.Len() - s.Position()) / 16
-				m.PlayerSessions = make([]uuid.UUID, endpointCount)
+				m.PlayerSessions = make([]GUID, endpointCount)
 			}
 			for i := 0; i < len(m.PlayerSessions); i++ {
-				if err := s.StreamGuid(&m.PlayerSessions[i]); err != nil {
+				if err := s.StreamGuid(m.PlayerSessions[i]); err != nil {
 					return err
 				}
 			}

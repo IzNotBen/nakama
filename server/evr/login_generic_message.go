@@ -3,12 +3,10 @@ package evr
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 type GenericMessage struct {
-	Session     uuid.UUID
+	Session     GUID
 	AcctId      uint64
 	MessageType Symbol
 	OtherEvrID  EvrId
@@ -16,7 +14,7 @@ type GenericMessage struct {
 	PartyData   GenericMessageData
 }
 
-func NewGenericMessage(session uuid.UUID, acctId uint64, messageType Symbol, otherEvrId EvrId, partyData GenericMessageData) *GenericMessage {
+func NewGenericMessage(session GUID, acctId uint64, messageType Symbol, otherEvrId EvrId, partyData GenericMessageData) *GenericMessage {
 	return &GenericMessage{
 		Session:     session,
 		AcctId:      acctId,
@@ -36,7 +34,7 @@ func (m *GenericMessage) Symbol() Symbol {
 
 func (m *GenericMessage) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
+		func() error { return s.StreamGuid(m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.AcctId) },
 		func() error { return s.StreamSymbol(&m.MessageType) },
 		func() error { return s.StreamStruct(&m.OtherEvrID) },
@@ -51,7 +49,7 @@ func (m *GenericMessage) Stream(s *EasyStream) error {
 	})
 }
 
-func (m *GenericMessage) GetSessionID() uuid.UUID {
+func (m *GenericMessage) GetSessionID() GUID {
 	return m.Session
 }
 

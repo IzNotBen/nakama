@@ -10,8 +10,8 @@ import (
 
 func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 	var err error
-
-	data, err := codec.Wrap(SymbolOf(&LobbyCreateSessionRequest{}), []byte{
+	codec := NewCodec(nil)
+	data, err := codec.wrap(uint64(SymbolOf(&LobbyCreateSessionRequest{})), []byte{
 		0x3a, 0xa0, 0x23, 0x12, 0xb2, 0xe7, 0x5f, 0x45,
 		0x0d, 0x91, 0x77, 0x8f, 0xd7, 0x01, 0x2f, 0xc6,
 		0x03, 0x8c, 0xdb, 0xf4, 0x65, 0x09, 0x99, 0x09,
@@ -39,7 +39,6 @@ func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 	}
 
 	// Add the header to the payload
-
 	packet, err := codec.Unmarshal(data)
 	if err != nil {
 		t.Fatal(err)
@@ -51,19 +50,19 @@ func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 
 	got := *message
 	want := LobbyCreateSessionRequest{
-		LobbyType:      uint32(PrivateLobby),
+		LobbyType:      PrivateLobby,
 		Region:         4998968863399059514,
-		VersionLock:    -4166109104957845235,
+		VersionLock:    66109104957845235,
 		Mode:           ModeArenaPrivate,
 		Level:          6300205991959903307,
 		Platform:       14477050463639303416,
-		LoginSessionID: uuid.Must(uuid.FromString("320cedab-fb50-11ee-8e45-66d3ff8a653b")),
+		LoginSessionID: GUID(uuid.Must(uuid.FromString("320cedab-fb50-11ee-8e45-66d3ff8a653b"))),
 		Unk1:           1,
 		Unk2:           11,
 		SessionSettings: SessionSettings{
-			AppID: "1369078409873402",
+			AppID: 1369078409873402,
 			Mode:  691594351282457603,
-			Level: nil,
+			Level: 0,
 		},
 		EvrId:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
 		TeamIndex: 2,
@@ -79,8 +78,8 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 	/* args were "-noovr -novr -gametype echo_arena_private  -lobbyteam 2 -mp" */
 
 	// It's setting the server region to the same value as the level
-
-	data, err := codec.Wrap(SymbolOf(&LobbyCreateSessionRequest{}), []byte{
+	codec := NewCodec(nil)
+	data, err := codec.wrap(uint64(SymbolOf(&LobbyCreateSessionRequest{})), []byte{
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		0x0d, 0x91, 0x77, 0x8f, 0xd7, 0x01, 0x2f, 0xc6,
 		0x03, 0x8c, 0xdb, 0xf4, 0x65, 0x09, 0x99, 0x09,
@@ -108,7 +107,6 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 	}
 
 	// Add the header to the payload
-
 	packet, err := codec.Unmarshal(data)
 	if err != nil {
 		t.Fatal(err)
@@ -119,19 +117,19 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 	}
 
 	want := LobbyCreateSessionRequest{
-		LobbyType:      uint32(PrivateLobby),
+		LobbyType:      PrivateLobby,
 		Region:         4998968863399059514,
-		VersionLock:    -4166109104957845235,
+		VersionLock:    66109104957845235,
 		Mode:           ModeArenaPrivate,
 		Level:          6300205991959903307,
 		Platform:       14477050463639303416,
-		LoginSessionID: uuid.Must(uuid.FromString("320cedab-fb50-11ee-8e45-66d3ff8a653b")),
+		LoginSessionID: GUID(uuid.Must(uuid.FromString("320cedab-fb50-11ee-8e45-66d3ff8a653b"))),
 		Unk1:           1,
 		Unk2:           11,
 		SessionSettings: SessionSettings{
-			AppID: "1369078409873402",
+			AppID: 1369078409873402,
 			Mode:  691594351282457603,
-			Level: nil,
+			Level: 0,
 		},
 		EvrId:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
 		TeamIndex: 2,

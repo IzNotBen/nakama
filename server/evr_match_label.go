@@ -148,22 +148,22 @@ func (l LobbyState) String() string {
 }
 
 // The Team Index determines the team that the player is on.
-type TeamIndex int16
+type TeamAlignment int16
 
 const (
-	AnyTeam TeamIndex = iota - 1
-	BlueTeam
-	OrangeTeam
-	Spectator
-	SocialLobbyParticipant
-	Moderator // Moderator is invisible to other players and able to fly around.
+	TeamUnassigned TeamAlignment = iota - 1
+	BlueTeamRole
+	OrangeTeamRole
+	TeamSpectator
+	TeamSocial
+	TeamModerator // Moderator is invisible to other players and able to fly around.
 )
 
-func (t TeamIndex) MarshalJSON() ([]byte, error) {
+func (t TeamAlignment) MarshalJSON() ([]byte, error) {
 	return json.Marshal(t.String())
 }
 
-func (t *TeamIndex) UnmarshalJSON(b []byte) error {
+func (t *TeamAlignment) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
 		return err
@@ -174,40 +174,40 @@ func (t *TeamIndex) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return err
 		}
-		*t = TeamIndex(i)
+		*t = TeamAlignment(i)
 	case "any":
-		*t = AnyTeam
+		*t = TeamUnassigned
 
 	case "orange":
-		*t = OrangeTeam
+		*t = OrangeTeamRole
 	case "blue":
-		*t = BlueTeam
+		*t = BlueTeamRole
 	case "spectator":
-		*t = Spectator
+		*t = TeamSpectator
 	case "social":
-		*t = SocialLobbyParticipant
+		*t = TeamSocial
 	case "moderator":
-		*t = Moderator
+		*t = TeamModerator
 	}
 	return nil
 }
 
-func (t TeamIndex) String() string {
+func (t TeamAlignment) String() string {
 
 	switch t {
 	default:
 		return "unk"
-	case AnyTeam:
+	case TeamUnassigned:
 		return "any"
-	case OrangeTeam:
+	case OrangeTeamRole:
 		return "orange"
-	case BlueTeam:
+	case BlueTeamRole:
 		return "blue"
-	case Spectator:
+	case TeamSpectator:
 		return "spectator"
-	case SocialLobbyParticipant:
+	case TeamSocial:
 		return "social"
-	case Moderator:
+	case TeamModerator:
 		return "moderator"
 
 	}

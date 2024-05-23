@@ -42,12 +42,12 @@ func InitializeEvrRuntimeModule(ctx context.Context, logger runtime.Logger, db *
 
 	// Register RPC's for device linking
 	rpcs := map[string]func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error){
-		"link/device":          LinkDeviceRpc,
-		"link/usernamedevice":  LinkUserIdDeviceRpc,
-		"signin/discord":       DiscordSignInRpc,
-		"match":                MatchRPC,
-		"match/prepare":        PrepareMatchRPC,
-		"user/kick":            KickPlayerRPC,
+		"link/device":         LinkDeviceRpc,
+		"link/usernamedevice": LinkUserIdDeviceRpc,
+		"signin/discord":      DiscordSignInRpc,
+		"match":               MatchRpc,
+		//"match/prepare":        PrepareMatchRPC,
+		//"user/kick":            KickPlayerRPC,
 		"link":                 LinkingAppRpc,
 		"evr/servicestatus":    ServiceStatusRpc,
 		"importloadouts":       ImportLoadoutsRpc,
@@ -70,8 +70,8 @@ func InitializeEvrRuntimeModule(ctx context.Context, logger runtime.Logger, db *
 	}
 
 	// Register the "matchmaking" handler
-	if err := initializer.RegisterMatch(EvrMatchmakerModule, func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule) (runtime.Match, error) {
-		return &EvrMatch{}, nil
+	if err := initializer.RegisterMatch(MatchModule, func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule) (runtime.Match, error) {
+		return &EVRMatchHandler{}, nil
 	}); err != nil {
 		return err
 	}
@@ -84,6 +84,10 @@ func InitializeEvrRuntimeModule(ctx context.Context, logger runtime.Logger, db *
 	// Update the metrics with match data
 	go metricsUpdateLoop(ctx, logger, nk.(*RuntimeGoNakamaModule))
 
+	if err := registerGuard(initializer); err != nil {
+		panic(err)
+	}
+
 	logger.Info("Initialized runtime module.")
 	return nil
 }
@@ -91,7 +95,7 @@ func InitializeEvrRuntimeModule(ctx context.Context, logger runtime.Logger, db *
 type MatchState struct {
 	TickRate  int
 	Presences []*rtapi.UserPresence
-	State     EvrMatchState
+	State     matchState
 }
 
 func listMatchStates(ctx context.Context, nk runtime.NakamaModule, query string) ([]*MatchState, error) {
@@ -108,13 +112,13 @@ func listMatchStates(ctx context.Context, nk runtime.NakamaModule, query string)
 
 	var matchStates []*MatchState
 	for _, match := range matches {
-		mt := MatchToken(match.MatchId)
-		presences, tickRate, data, err := nk.(*RuntimeGoNakamaModule).matchRegistry.GetState(ctx, mt.ID(), mt.Node())
+		mt := MatchIDFromStringOrNil(match.MatchId)
+		presences, tickRate, data, err := nk.(*RuntimeGoNakamaModule).matchRegistry.GetState(ctx, mt.uuid, mt.Node())
 		if err != nil {
 			return nil, err
 		}
 
-		state := EvrMatchState{}
+		state := MatchLabel{}
 		if err := json.Unmarshal([]byte(data), &state); err != nil {
 			return nil, err
 		}

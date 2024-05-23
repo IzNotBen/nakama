@@ -30,6 +30,8 @@ type GameProfile interface {
 	SetChannel(c evr.GUID)
 	UpdateDisplayName(displayName string)
 	UpdateUnlocks(unlocks evr.UnlockedCosmetics) error
+	UpdateStats(update evr.UpdatePayload) error
+	GetStats(period string) evr.ArenaStats
 }
 
 type GameProfileData struct {
@@ -54,6 +56,7 @@ func (p *GameProfileData) SetLogin(login evr.LoginProfile) {
 
 func (p *GameProfileData) SetClient(client evr.ClientProfile) {
 	p.Client = client
+	p.UpdateTimestamps()
 }
 
 func (p *GameProfileData) SetServer(server evr.ServerProfile) {
@@ -76,6 +79,7 @@ func (p *GameProfileData) GetLogin() evr.LoginProfile {
 func (p *GameProfileData) SetEvrID(evrID evr.EvrId) {
 	p.Server.EvrID = evrID
 	p.Client.EvrID = evrID
+
 }
 
 func (p *GameProfileData) GetChannel() uuid.UUID {
@@ -87,12 +91,15 @@ func (p *GameProfileData) SetChannel(c evr.GUID) {
 	p.Client.Social.Channel = p.Server.Social.Channel
 }
 
-func (p *GameProfileData) UpdateDisplayName(displayName string) {
-	p.Server.DisplayName = displayName
-	p.Client.DisplayName = displayName
+
+func (p *GameProfileData) UpdateTimestamps() {
 	p.Server.UpdateTime = time.Now().UTC().Unix()
 	p.Client.ModifyTime = time.Now().UTC().Unix()
+}
 
+func (p *GameProfileData) SetDisplayName(displayName string) {
+	p.Server.DisplayName = displayName
+	p.Client.DisplayName = displayName
 }
 
 func (p *GameProfileData) SetAFKTimeout(enable bool) {
@@ -158,6 +165,109 @@ type ProfileRegistry struct {
 	cache map[evr.EvrId][]byte
 	// Load out default items
 	defaults map[string]string
+}
+
+func (r *ProfileRegistry) UpdateStats(userID uuid.UUID, profile *GameProfileData, update evr.UpdatePayload) error {
+	logger := r.logger.WithFields(map[string]any{
+		"userID": userID.String(),
+		"evrID":  update.SessionID.String(),
+	})
+	if update.Matchtype != evr.ModeArenaPublic {
+		logger.Warn("Ignoring stats update for non-arena match: %s", update.Matchtype)
+		return nil
+	}
+
+	// Store the update
+	if _, err := r.nk.StorageWrite(r.ctx, []*runtime.StorageWrite{
+		{
+			Collection: SessionStatisticsStorageCollection,
+			Key:        update.SessionID.String(),
+			UserID:     userID.String(),
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to write stats update: %w", err)
+	}
+	// Get the existing statistics for this period
+
+	objs, err := r.nk.StorageRead(r.ctx, []*runtime.StorageRead{
+		{
+			Collection: GameStatisticsStorageCollection,
+			Key:        update.SessionID.String(),
+		},
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to read stats: %w", err)
+	}
+
+	if len(objs) == 0 {
+		// Create a new statistics object
+		profile.Server.Statistics = evr.NewArenaStatistics()
+		
+
+	// Iterate over the periods
+	for period, fields := range update.Update.StatsGroups {
+
+		for fieldName, fieldVal := range fields {
+			// Increase games played by 1
+			gamesPlayed := profile.Server.Statistics.Arena.ArenaLosses.Value + profileStatistics.Arena.ArenaWins.Value + 1
+			s := profiles.Server.Statistics.Arena
+			switch fieldName {
+			case "ArenaLosses":
+				s.ArenaLosses.Value += fields["val"].(uint64)
+
+			case "ArenaWins":
+				s.ArenaWins.Value += fields["val"].(uint64)
+
+			case "AveragePossessionTimePerGame":
+				v := fields["val"].(float64)
+				s.AveragePossessionTimePerGame.Value = (s.AveragePossessionTimePerGame.Value*(float64(gamesPlayed)-1) + v) / float64(gamesPlayed)
+
+			case "AverageTopSpeedPerGame":
+				v := fields["val"].(float64)
+				s.AverageTopSpeedPerGame.Value = (s.AverageTopSpeedPerGame.Value*float64(gamesPlayed-1) + v) / float64(gamesPlayed)
+
+			case "Catches":
+				s.Catches.Value += fields["val"].(uint64)
+
+			case "Clears":
+				s.Clears.Value += fields["val"].(uint64)
+
+			case "HighestStuns":
+				if fields["val"].(uint64) > s.HighestStuns.Value {
+					s.HighestStuns.Value = fields["val"].(uint64)
+				}
+
+			case "Level":
+				s.Level.Value += fields["val"].(uint8)
+
+			case "Passes":
+				s.Passes.Value += fields["val"].(uint64)
+
+			case "PossessionTime":
+				s.PossessionTime.Value += fields["val"].(float64)
+
+			case "PunchesReceived":
+				s.PunchesReceived.Value += fields["val"].(uint64)
+
+			case "ShotsOnGoalAgainst":
+				s.ShotsOnGoalAgainst.Value += fields["val"].(uint64)
+
+			case "Stuns":
+				s.Stuns.Value += fields["val"].(uint64)
+
+			case "StunsPerGame":
+				v := fields["val"].(float64)
+				s.StunsPerGame.Value = (s.StunsPerGame.Value*float64(gamesPlayed-1) + v) / float64(gamesPlayed)
+			case "TopSpeedsTotal":
+				s.TopSpeedsTotal.Value += fields["val"].(float64)
+			case "XP":
+				s.XP.Value += fields["val"].(uint64)
+
+			}
+		}
+	}
+	return nil
 }
 
 func NewProfileRegistry(nk runtime.NakamaModule, db *sql.DB, logger runtime.Logger, discordRegistry DiscordRegistry) *ProfileRegistry {
@@ -332,7 +442,10 @@ func (r *ProfileRegistry) retrieve(ctx context.Context, userID uuid.UUID) (profi
 		},
 	})
 
-	if err != nil || len(objs) == 0 {
+	if err != nil {
+		return profile, err
+	}
+	if len(objs) == 0 {
 		return profile, ErrProfileNotFound
 	}
 	if err = json.Unmarshal([]byte(objs[0].Value), &profile); err != nil {
@@ -751,8 +864,7 @@ func (r *ProfileRegistry) ValidateArenaUnlockByName(i interface{}, itemName stri
 	return false, fmt.Errorf("unknown unlock field name: %s", fieldName)
 }
 
-func (r *ProfileRegistry) GetSessionProfile(ctx context.Context, session *sessionWS, loginProfile evr.LoginProfile, evrID evr.EvrId) (GameProfileData, error) {
-	logger := session.logger.With(zap.String("evr_id", evrID.String()))
+func (r *ProfileRegistry) GetSessionProfile(ctx context.Context, session *sessionWS, loginProfile evr.LoginProfile, evrID evr.EvrId, memberships []ChannelMember) (GameProfileData, error) {
 
 	p, ok := r.Load(session.userID, evrID)
 	if !ok {
@@ -763,9 +875,14 @@ func (r *ProfileRegistry) GetSessionProfile(ctx context.Context, session *sessio
 	p.Server.PublisherLock = p.Login.GetPublisherLock()
 	p.Server.LobbyVersion = p.Login.GetLobbyVersion()
 
-	// Update the account
-	if err := r.discordRegistry.UpdateAccount(ctx, session.userID); err != nil {
-		logger.Warn("Failed to update account", zap.Error(err))
+	p.SetEvrID(evrID)
+
+	// Validate the users's selected channel
+	found := lo.ContainsBy(memberships, func(m ChannelMember) bool { return m.ChannelID == uuid.UUID(p.Client.Social.Channel) })
+	if !found {
+		// Set the user's channel to the first channel they are a member of
+		p.SetChannel(evr.GUID(memberships[0].ChannelID))
+		p.SetDisplayName(memberships[0].DisplayName)
 	}
 
 	// Apply any unlocks based on the user's groups
@@ -773,9 +890,8 @@ func (r *ProfileRegistry) GetSessionProfile(ctx context.Context, session *sessio
 		return p, fmt.Errorf("failed to update entitled cosmetics: %w", err)
 	}
 
-	p.Server.CreateTime = time.Date(2023, 10, 31, 0, 0, 0, 0, time.UTC).Unix()
 	p.Server.LoginTime = time.Now().UTC().Unix()
-	p.Server.UpdateTime = time.Now().UTC().Unix()
+	p.UpdateTimestamps()
 
 	go func() {
 		r.Store(session.userID, p)
@@ -800,6 +916,27 @@ func (r *ProfileRegistry) UpdateClientProfile(ctx context.Context, logger *zap.L
 	//}
 
 	p.Client = update
+
+	// Get the channel memberships from the context
+	memberships, ok := ctx.Value(ctxChannelsKey{}).([]ChannelMember)
+	if !ok {
+		err = fmt.Errorf("failed to get channel memberships from context")
+		return
+	}
+
+	channelID := uuid.UUID(p.Client.Social.Channel)
+	// Validate the users's selected channel
+	found = lo.ContainsBy(memberships, func(m ChannelMember) bool { return m.ChannelID == channelID && !m.isSuspended })
+	if !found {
+		// Set the user's channel to the first channel they are a member of
+		for _, m := range memberships {
+			if m.isSuspended {
+				continue
+			}
+			p.SetChannel(evr.GUID(m.ChannelID))
+			break
+		}
+	}
 
 	r.Store(session.userID, p)
 	return p, nil

@@ -3,13 +3,11 @@ package evr
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 // client -> nakama: request the user profile for their logged-in account.
 type LoggedInUserProfileRequest struct {
-	Session            uuid.UUID
+	Session            GUID
 	EvrId              EvrId
 	ProfileRequestData ProfileRequestData
 }
@@ -28,21 +26,21 @@ func (r LoggedInUserProfileRequest) String() string {
 
 func (m *LoggedInUserProfileRequest) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
+		func() error { return s.StreamGuid(m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
 		func() error { return s.StreamJson(&m.ProfileRequestData, true, NoCompression) },
 	})
 }
 
-func NewLoggedInUserProfileRequest(session uuid.UUID, evrId EvrId, profileRequestData ProfileRequestData) LoggedInUserProfileRequest {
+func NewLoggedInUserProfileRequest(session GUID, evrId EvrId, profileRequestData ProfileRequestData) LoggedInUserProfileRequest {
 	return LoggedInUserProfileRequest{
 		Session:            session,
 		EvrId:              evrId,
 		ProfileRequestData: profileRequestData,
 	}
 }
-func (m *LoggedInUserProfileRequest) GetSessionID() uuid.UUID {
+func (m *LoggedInUserProfileRequest) GetSessionID() GUID {
 	return m.Session
 }
 

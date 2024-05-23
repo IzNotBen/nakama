@@ -9,7 +9,6 @@ package evr
 import (
 	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid/v5"

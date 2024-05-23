@@ -3,16 +3,14 @@ package evr
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 type LoginSuccess struct {
-	Session uuid.UUID
+	Session GUID
 	EvrId   EvrId
 }
 
-func NewLoginSuccess(session uuid.UUID, evrId EvrId) *LoginSuccess {
+func NewLoginSuccess(session GUID, evrId EvrId) *LoginSuccess {
 	return &LoginSuccess{
 		Session: session,
 		EvrId:   evrId,
@@ -34,13 +32,13 @@ func (m LoginSuccess) String() string {
 
 func (m *LoginSuccess) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
+		func() error { return s.StreamGuid(m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
 	})
 }
 
-func (m *LoginSuccess) GetSessionID() uuid.UUID {
+func (m *LoginSuccess) GetSessionID() GUID {
 	return m.Session
 }
 

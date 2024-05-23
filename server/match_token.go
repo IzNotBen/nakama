@@ -1,50 +1,86 @@
 package server
 
 import (
-	"fmt"
+	"errors"
 
 	"strings"
 
 	"github.com/gofrs/uuid/v5"
 )
 
-// MatchToken represents a unique identifier for a match, consisting of a uuid.UUID and a node name.
-type MatchToken string
+var (
+	ErrInvalidMatchTokenFormat = errors.New("invalid match token format")
+	ErrInvalidMatchID          = errors.New("invalid match ID")
+	ErrInvalidMatchNode        = errors.New("invalid match node")
+	ErrInvalidMatchToken       = errors.New("invalid match token")
+)
 
-func (MatchToken) Nil() MatchToken {
-	return MatchToken("")
+// MatchID represents a unique identifier for a match, consisting of a uuid.UUID and a node name.
+type MatchID struct {
+	uuid uuid.UUID
+	node string
 }
 
-func NewMatchToken(id uuid.UUID, node string) (MatchToken, error) {
-	if id == uuid.Nil || node == "" {
-		return "", ErrInvalidMatchID
+func (t MatchID) UUID() uuid.UUID {
+	return t.uuid
+}
+
+func (t MatchID) Node() string {
+	return t.node
+}
+
+func (MatchID) Nil() MatchID {
+	return MatchID{}
+}
+
+func (t MatchID) IsNil() bool {
+	return MatchID{} == t
+}
+
+func (t MatchID) IsNotNil() bool {
+	return MatchID{} != t
+}
+
+func NewMatchToken(id uuid.UUID, node string) (t MatchID, err error) {
+	switch {
+	case id == uuid.Nil:
+		err = ErrInvalidMatchID
+	case node == "":
+		err = ErrInvalidMatchNode
+	default:
+		t.uuid = id
+		t.node = node
 	}
-	return MatchToken(fmt.Sprintf("%s.%s", id, node)), nil
+	return
 }
 
-func (t MatchToken) String() string {
-	return string(t)
+func (t MatchID) String() string {
+	return t.uuid.String() + "." + t.node
 }
 
-func (t MatchToken) ID() uuid.UUID {
-	parts := strings.Split(string(t), ".")
-	id, _ := uuid.FromString(parts[0])
-	return id
+func MatchIDFromStringOrNil(s string) (t MatchID) {
+	if s == "" {
+		return
+	}
+	t, err := MatchTokenFromString(s)
+	if err != nil {
+		return MatchID{}
+	}
+	return
 }
 
-func (t MatchToken) Node() string {
-	parts := strings.Split(string(t), ".")
-	return parts[1]
-}
-
-func (t MatchToken) IsValid() bool {
-	if t == "" {
+func (t MatchID) IsValid() bool {
+	if t.uuid == uuid.Nil || t.node == "" {
 		return false
 	}
-	return MatchTokenFromStringOrNil(t.String()) == t
+	return true
 }
 
-func (t *MatchToken) UnmarshalText(data []byte) error {
+func (t MatchID) MarshalText() ([]byte, error) {
+	return []byte(t.String()), nil
+}
+
+func (t *MatchID) UnmarshalText(data []byte) error {
 	token, err := MatchTokenFromString(string(data))
 	if err != nil {
 		return err
@@ -53,31 +89,20 @@ func (t *MatchToken) UnmarshalText(data []byte) error {
 	return nil
 }
 
-func MatchTokenFromString(s string) (t MatchToken, err error) {
-	if s == "" {
-		return
+func MatchTokenFromString(s string) (t MatchID, err error) {
+	if len(s) < 38 || s[36] != '.' {
+		return t, ErrInvalidMatchToken
 	}
 
-	parts := strings.SplitN(s, ".", 2)
+	components := strings.SplitN(s, ".", 2)
+	t.uuid = uuid.FromStringOrNil(components[0])
+	t.node = components[1]
+
 	switch {
-	case len(parts) != 2:
-		err = ErrInvalidMatchTokenFormat
-	case parts[0] == "" || uuid.FromStringOrNil(parts[0]) == uuid.Nil:
-		err = ErrInvalidMatchUUID
-	case parts[1] == "":
+	case t.uuid == uuid.Nil:
+		err = ErrInvalidMatchID
+	case t.node == "":
 		err = ErrInvalidMatchNode
 	}
-	if err == nil {
-		t = MatchToken(s)
-	}
 	return
-}
-
-// Same behavior as FromString(), but returns MatchToken instead of an error.
-func MatchTokenFromStringOrNil(s string) MatchToken {
-	t, err := MatchTokenFromString(s)
-	if err != nil {
-		t = ""
-	}
-	return t
 }

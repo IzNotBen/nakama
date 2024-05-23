@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama/v3/server/evr"
 	"go.uber.org/zap"
@@ -96,6 +97,7 @@ type testDiscordRegistry struct {
 }
 
 func TestEvrPipeline_authenticateAccount(t *testing.T) {
+	logger := zap.NewNop()
 	type fields struct {
 		placeholderEmail string
 		linkDeviceUrl    string
@@ -167,11 +169,6 @@ func TestEvrPipeline_authenticateAccount(t *testing.T) {
 }
 
 func Test_updateProfileStats(t *testing.T) {
-	type args struct {
-		logger  *zap.Logger
-		profile *GameProfileData
-		update  evr.StatsUpdate
-	}
 
 	jsonData := `{
 		"matchtype": -3791849610740453400,
@@ -359,12 +356,18 @@ func Test_updateProfileStats(t *testing.T) {
 			}
 		}
 	}`
-	var update evr.StatsUpdate
+
+	var update evr.UpdatePayload
 	err := json.Unmarshal([]byte(jsonData), &update)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
+	type args struct {
+		logger  *zap.Logger
+		profile *GameProfileData
+		update  evr.UpdatePayload
+	}
 	tests := []struct {
 		name    string
 		args    args
@@ -388,17 +391,16 @@ func Test_updateProfileStats(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			/*
-				got, err := updateProfileStats(tt.args.logger, tt.args.profile, tt.args.update)
+			err := tt.args.profile.UpdateStats(update)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("updateProfileStats() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
 
-				if (err != nil) != tt.wantErr {
-					t.Errorf("updateProfileStats() error = %v, wantErr %v", err, tt.wantErr)
-					return
-				}
-				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("updateProfileStats() = %v, want %v", got, tt.want)
-				}
-			*/
+			if !reflect.DeepEqual(tt.args.profile, tt.want) {
+				t.Errorf(cmp.Diff(tt.args.profile, tt.want))
+			}
+
 		})
 	}
 }

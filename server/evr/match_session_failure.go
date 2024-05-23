@@ -3,8 +3,6 @@ package evr
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 type LobbySessionFailureErrorCode uint32
@@ -29,7 +27,7 @@ const (
 // LobbySessionFailure is a message from server to client indicating a lobby session request failed.
 type LobbySessionFailure struct {
 	GameTypeSymbol Symbol                       // A symbol representing the gametype requested for the session.
-	ChannelUUID    uuid.UUID                    // The channel requested for the session.
+	ChannelUUID    GUID                         // The channel requested for the session.
 	ErrorCode      LobbySessionFailureErrorCode // The error code to return with the failure.
 	Unk0           uint32                       // TODO: Add description
 	Message        string                       // The message sent with the failure.
@@ -45,7 +43,7 @@ func (m *LobbySessionFailure) String() string {
 	)
 }
 
-func NewLobbySessionFailure(gameType Symbol, channel uuid.UUID, errorCode LobbySessionFailureErrorCode, message string) *LobbySessionFailure {
+func NewLobbySessionFailure(gameType Symbol, channel GUID, errorCode LobbySessionFailureErrorCode, message string) *LobbySessionFailure {
 
 	return &LobbySessionFailure{
 		GameTypeSymbol: gameType,
@@ -103,7 +101,7 @@ func (m *LobbySessionFailurev2) String() string {
 
 func (m *LobbySessionFailurev2) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.ChannelUUID) },
+		func() error { return s.StreamGuid(m.ChannelUUID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ErrorCode) },
 	})
 }
@@ -125,7 +123,7 @@ func (m *LobbySessionFailurev3) String() string {
 func (m *LobbySessionFailurev3) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameTypeSymbol) },
-		func() error { return s.StreamGuid(&m.ChannelUUID) },
+		func() error { return s.StreamGuid(m.ChannelUUID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ErrorCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 	})
@@ -149,7 +147,7 @@ func (m *LobbySessionFailurev4) String() string {
 func (m *LobbySessionFailurev4) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameTypeSymbol) },
-		func() error { return s.StreamGuid(&m.ChannelUUID) },
+		func() error { return s.StreamGuid(m.ChannelUUID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ErrorCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamString(&m.Message, 72) },

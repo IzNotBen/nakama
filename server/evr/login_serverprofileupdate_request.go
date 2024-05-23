@@ -29,11 +29,17 @@ func (m *UserServerProfileUpdateRequest) Stream(s *EasyStream) error {
 }
 
 type UpdatePayload struct {
-	Matchtype float64     `json:"matchtype"`
-	Sessionid string      `json:"sessionid"`
+	Matchtype Symbol      `json:"matchtype"`
+	SessionID GUID        `json:"sessionid"`
 	Update    StatsUpdate `json:"update"`
 }
 
+/*
+	"ArenaLosses": {
+			"op": "add",
+			"val": 1
+		},
+*/
 type StatsUpdate struct {
-	StatsGroups map[string]any `json:"stats"`
+	StatsGroups map[string]map[string]any `json:"stats"`
 }

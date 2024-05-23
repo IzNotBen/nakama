@@ -48,6 +48,9 @@ type TaxiLinkRegistry struct {
 
 	node    string
 	tracked map[TrackID]MatchID
+	tracked map[TrackID]MatchID
+
+	reactOnlyChannels sync.Map
 }
 
 func NewTaxiLinkRegistry(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, config Config, dg *discordgo.Session) *TaxiLinkRegistry {
@@ -61,6 +64,7 @@ func NewTaxiLinkRegistry(ctx context.Context, logger runtime.Logger, nk runtime.
 		logger:      logger,
 		dg:          dg,
 		tracked:     make(map[TrackID]MatchID),
+		tracked:     make(map[TrackID]MatchID),
 	}
 
 	return linkRegistry
@@ -71,12 +75,14 @@ func (e *TaxiLinkRegistry) Stop() {
 }
 
 func (r *TaxiLinkRegistry) load(t TrackID) (MatchID, bool) {
+func (r *TaxiLinkRegistry) load(t TrackID) (MatchID, bool) {
 	r.Lock()
 	defer r.Unlock()
 	m, found := r.tracked[t]
 	return m, found
 }
 
+func (r *TaxiLinkRegistry) store(t TrackID, m MatchID) {
 func (r *TaxiLinkRegistry) store(t TrackID, m MatchID) {
 	r.Lock()
 	defer r.Unlock()
@@ -104,6 +110,7 @@ func (e *TaxiLinkRegistry) React(channelID, messageID string) error {
 
 // Track adds a message to the tracker
 func (e *TaxiLinkRegistry) Track(matchID MatchID, channelID, messageID string) {
+func (e *TaxiLinkRegistry) Track(matchToken MatchID, channelID, messageID string) {
 
 	t := TrackID{
 		ChannelID: channelID,
@@ -230,6 +237,7 @@ func (e *TaxiLinkRegistry) Count() (cnt int) {
 func EchoTaxiRuntimeModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, initializer runtime.Initializer) (err error) {
 	env := ctx.Value(runtime.RUNTIME_CTX_ENV).(map[string]string)
 
+	if s, ok := env["DISABLE_DISCORD_RESPONSE_HANDLERS"]; ok && s == "true" {
 	if s, ok := env["DISABLE_DISCORD_RESPONSE_HANDLERS"]; ok && s == "true" {
 		return nil
 	}
@@ -590,7 +598,7 @@ func (e *TaxiBot) getMatchFromLink(content string) (httpPrefix, appLinkPrefix st
 }
 
 // Hail sets the next match for a user
-func (e *TaxiBot) Hail(logger runtime.Logger, discordID string, matchID MatchID) error {
+func (e *TaxiBot) Hail(logger runtime.Logger, discordID string, matchToken MatchID) error {
 
 	// Get the nakama user id from the discord user id
 	userID, _, _, err := e.nk.AuthenticateCustom(e.ctx, discordID, "", true)
@@ -600,19 +608,20 @@ func (e *TaxiBot) Hail(logger runtime.Logger, discordID string, matchID MatchID)
 
 	// Increment the hail count
 	if !matchID.IsNil() {
+	if matchToken.IsNotNil() {
 		e.HailCount++
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
 	defer cancel()
-	settings, err := LoadMatchmakingSettings(ctx, logger, e.nk, userID)
+	settings, err := LoadUserMatchmakingSettings(ctx, e.nk, userID)
 	if err != nil {
 		return fmt.Errorf("Error loading matchmaking config: %s", err.Error())
 	}
 
 	// Update the NextMatchID
-	settings.NextMatchToken = MatchToken(matchID.String())
+	settings.NextMatchID = matchToken
 
-	if err := StoreMatchmakingSettings(ctx, logger, e.nk, settings, userID); err != nil {
+	if err := StoreUserMatchmakingSettings(ctx, e.nk, userID, settings); err != nil {
 		return fmt.Errorf("Error storing matchmaking config: %s", err.Error())
 	}
 
@@ -684,11 +693,12 @@ func (e *TaxiBot) handleMessageReactionAdd(s *discordgo.Session, reaction *disco
 
 	// Message the user
 	// Create an echo taxi link for the message
-	applink := fmt.Sprintf("<%sspark://c/%s>", EchoTaxiPrefix, strings.ToUpper(matchID.UUID().String()))
+	applink := fmt.Sprintf("<%sspark://c/%s>", EchoTaxiPrefix, strings.ToUpper(matchToken.UUID().String()))
 	dmMessage, err := s.ChannelMessageSend(dmChannelID, fmt.Sprintf("You have hailed a taxi to %s.\n\nGo into the game and click 'Play' on the main menu, or 'Find Match' on the lobby terminal. ", applink))
 	if err != nil {
 		logger.Warn("Error sending message: %v", err)
 	}
+	if dmMessage == nil {
 	if dmMessage == nil {
 		return
 	}
@@ -715,7 +725,7 @@ func (e *TaxiBot) handleMessageReactionRemove(s *discordgo.Session, reaction *di
 		return
 	}
 	// Remove the hail
-	e.Hail(e.logger, userID, NilMatchID)
+	e.Hail(e.logger, userID, MatchID{})
 
 	// Clear any non-bot taxi reactions
 	if err := e.linkRegistry.Clear(reaction.ChannelID, reaction.MessageID, false); err != nil {
@@ -724,14 +734,14 @@ func (e *TaxiBot) handleMessageReactionRemove(s *discordgo.Session, reaction *di
 }
 
 type EchoTaxiHailRPCRequest struct {
-	UserID  string  `json:"user_id"`
-	MatchID MatchID `json:"match_token"`
+	UserID     string  `json:"user_id"`
+	MatchToken MatchID `json:"match_token"`
 }
 
 type EchoTaxiHailRPCResponse struct {
-	UserID  string        `json:"user_id"`
-	MatchID MatchID       `json:"match_token"`
-	Label   EvrMatchState `json:"label"`
+	UserID     string     `json:"user_id"`
+	MatchToken MatchID    `json:"match_token"`
+	Label      matchState `json:"label"`
 }
 
 func (r *EchoTaxiHailRPCResponse) String() string {
@@ -758,13 +768,13 @@ func (e *TaxiBot) EchoTaxiHailRpc(ctx context.Context, logger runtime.Logger, db
 	}
 
 	// If the MatchID is blank, remove the hail
-	if matchID.IsNil() {
+	if matchToken.IsNil() {
 		// Delete the hail
-		err = e.Hail(logger, userID, NilMatchID)
+		err = e.Hail(logger, userID, MatchID{})
 		if err != nil {
 			return "", runtime.NewError(fmt.Sprintf("Error removing hail: %s", err.Error()), StatusInternalError)
 		}
-		response.MatchID = NilMatchID
+		matchToken = MatchID{}
 
 		return response.String(), nil
 	}
@@ -781,7 +791,7 @@ func (e *TaxiBot) EchoTaxiHailRpc(ctx context.Context, logger runtime.Logger, db
 	if match == nil {
 		return "", runtime.NewError(fmt.Sprintf("Match not found: %s", matchID), StatusNotFound)
 	}
-	label := EvrMatchState{}
+	label := matchState{}
 	err = json.Unmarshal([]byte(match.GetLabel().Value), &label)
 	if err != nil {
 		return "", runtime.NewError(fmt.Sprintf("Error unmarshalling label: %s", err.Error()), StatusInternalError)
@@ -880,6 +890,7 @@ func matchStatusEmbed(ctx context.Context, s *discordgo.Session, nk runtime.Naka
 	sparkLink := "https://echo.taxi/spark://c/" + strings.ToUpper(MatchID)
 
 	// Unmarshal the label
+	label := &matchState{}
 	label := &matchState{}
 	err = json.Unmarshal([]byte(match.GetLabel().Value), label)
 	if err != nil {

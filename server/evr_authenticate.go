@@ -41,6 +41,8 @@ const (
 	HmdSerialIndex               = "Index_HmdSerial"
 	IpAddressIndex               = "Index_" + EvrLoginStorageCollection
 	DisplayNameCollection        = "DisplayNames"
+	VRMLStorageCollection        = "VRML"
+	VRMLIDStorageKey             = "vrmlID"
 	DisplayNameIndex             = "Index_DisplayName"
 	GhostedUsersIndex            = "Index_MutedUsers"
 	ActiveSocialGroupIndex       = "Index_SocialGroup"
@@ -595,10 +597,10 @@ func (a *AccountUserMetadata) MarshalToMap() (map[string]interface{}, error) {
 }
 
 type SuspensionStatus struct {
-	GuildId            string        `json:"guild_id"`
+	GuildID            string        `json:"guild_id"`
 	GuildName          string        `json:"guild_name"`
-	UserId             string        `json:"userId"`
-	UserDiscordId      string        `json:"discordId"`
+	UserID             string        `json:"userId"`
+	UserDiscordID      string        `json:"discordId"`
 	ModeratorDiscordId string        `json:"moderatorId"`
 	Expiry             time.Time     `json:"expiry"`
 	Duration           time.Duration `json:"duration"`
@@ -609,7 +611,7 @@ type SuspensionStatus struct {
 
 func (s *SuspensionStatus) Valid() bool {
 	/// TODO use validator package
-	if s.Expiry.IsZero() || s.Expiry.Before(time.Now()) || s.Duration <= 0 || s.UserId == "" || s.GuildId == "" || s.RoleId == "" {
+	if s.Expiry.IsZero() || s.Expiry.Before(time.Now()) || s.Duration <= 0 || s.UserID == "" || s.GuildID == "" || s.RoleId == "" {
 		return false
 	}
 	return true
@@ -671,11 +673,10 @@ func (md *RoleGroupMetadata) MarshalToMap() (map[string]interface{}, error) {
 	return guildGroupMap, nil
 }
 
-func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModule, logger *zap.Logger, discordRegistry DiscordRegistry, session *sessionWS, groupID string) (displayName string, err error) {
+func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModule, logger runtime.Logger, discordRegistry DiscordRegistry, userID string, groupID string) (displayName string, err error) {
 
 	// Priority order from least to most preferred
 	options := make([]string, 0, 6)
-	userID := session.UserID().String()
 
 	var account *api.Account
 	// Get the account
@@ -713,11 +714,12 @@ func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModu
 
 	options = append(options, discordUser.Username)
 	options = append(options, discordUser.GlobalName)
-	gid := uuid.FromStringOrNil(groupID)
+
+	groupUUID := uuid.FromStringOrNil(groupID)
 	// Get the guild
-	if uuid.FromStringOrNil(groupID) != uuid.Nil {
+	if groupUUID != uuid.Nil {
 		// Get the guild by the user's primary guild
-		guild, err := discordRegistry.GetGuildByGroupId(ctx, gid.String())
+		guild, _, err := discordRegistry.GetGuildByGroupId(ctx, groupUUID)
 		if err != nil {
 			logger.Warn("Error getting guild by group id.", zap.String("group_id", groupID), zap.Error(err))
 			return displayName, nil
@@ -734,7 +736,7 @@ func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModu
 
 	// Reverse the options
 	options = lo.Reverse(options)
-	logger.Debug("SetDisplayNameByChannelBySession", zap.String("options", strings.Join(options, ",")))
+	logger.WithField("options", strings.Join(options, ", ")).Debug("Selecting display name by priority")
 	displayName, err = SelectDisplayNameByPriority(ctx, nk, account.GetUser().GetId(), account.GetUser().GetUsername(), options)
 	if err != nil {
 		return "", fmt.Errorf("error selecting display name by priority: %w", err)
@@ -746,7 +748,7 @@ func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModu
 	}
 
 	// Purge old display names
-	records, err := GetDisplayNameRecords(ctx, NewRuntimeGoLogger(logger), nk, userID)
+	records, err := GetDisplayNameRecords(ctx, logger, nk, userID)
 	if err != nil {
 		return "", fmt.Errorf("error getting display names: %w", err)
 	}

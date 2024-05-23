@@ -2,13 +2,11 @@ package evr
 
 import (
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 // LobbyPendingSessionCancel represents a message from client to the server, indicating intent to cancel pending matchmaker operations.
 type LobbyPendingSessionCancel struct {
-	Session uuid.UUID // The user's session token.
+	Session GUID // The user's session token.
 }
 
 func (m *LobbyPendingSessionCancel) Token() string {
@@ -25,7 +23,7 @@ func (m *LobbyPendingSessionCancel) String() string {
 }
 
 // NewLobbyPendingSessionCancelWithSession initializes a new LobbyPendingSessionCancel message with the provided session token.
-func NewLobbyPendingSessionCancel(session uuid.UUID) *LobbyPendingSessionCancel {
+func NewLobbyPendingSessionCancel(session GUID) *LobbyPendingSessionCancel {
 	return &LobbyPendingSessionCancel{
 		Session: session,
 	}
@@ -33,10 +31,10 @@ func NewLobbyPendingSessionCancel(session uuid.UUID) *LobbyPendingSessionCancel 
 
 func (m *LobbyPendingSessionCancel) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
+		func() error { return s.StreamGuid(m.Session) },
 	})
 }
 
-func (m *LobbyPendingSessionCancel) GetSessionID() uuid.UUID {
+func (m *LobbyPendingSessionCancel) GetSessionID() GUID {
 	return m.Session
 }

@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -141,19 +139,42 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 		externalIP = p.externalIP
 	}
 
-	logger = logger.With(zap.String("externalIP", externalIP.String()))
-
-	features := ctx.Value(ctxFeaturesKey{}).([]string)
+	if len(tags) > 0 {
+		if lo.Contains(tags, "membersonly") {
+			// Servers that are members only are not available for public hosting
+			tags = append(tags, "regionrequired")
+		}
+	}
 
 	// Create the broadcaster config
-	config := broadcasterConfig(userId, session.id.String(), request.ServerId, request.InternalIP, externalIP, request.Port, regions, request.VersionLock, tags, features)
 
 	// Get the hosted groupIDs
 	groupIDs, err := p.getBroadcasterHostGroups(ctx, logger, session, userId, discordId, guildIds)
 	if err != nil {
 		return errFailedRegistration(session, logger, err, evr.BroadcasterRegistration_Unknown)
 	}
-	config.Channels = groupIDs
+
+	presence := BroadcasterPresence{
+		ServerID: evr.Symbol(request.ServerId),
+		Endpoint: evr.Endpoint{
+			InternalIP: request.InternalIP,
+			ExternalIP: externalIP,
+			Port:       request.Port,
+		},
+		VersionLock:  evr.Symbol(request.VersionLock),
+		Region:       evr.Symbol(request.Region),
+		Channels:     channels,
+		Tags:         tags,
+		UserID:       uuid.FromStringOrNil(userId),
+		SessionID:    uuid.FromStringOrNil(session.id.String()),
+		Username:     session.Username(),
+		ClientIP:     session.ClientIP(),
+		EvrID:        evr.EvrId{},
+		DiscordID:    discordId,
+		SessionFlags: ctx.Value(ctxFlagsKey{}).(SessionFlags),
+		Node:         p.node,
+		session:      session,
+	}
 
 	logger = logger.With(zap.String("internalIP", request.InternalIP.String()), zap.String("externalIP", externalIP.String()), zap.Uint16("port", request.Port))
 	// Validate connectivity to the broadcaster.
@@ -167,7 +188,7 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 	retries := 5
 	var rtt time.Duration
 	for i := 0; i < retries; i++ {
-		rtt, err = BroadcasterHealthcheck(p.localIP, config.Endpoint.ExternalIP, int(config.Endpoint.Port), 500*time.Millisecond)
+		rtt, err = BroadcasterHealthcheck(p.localIP, presence.Endpoint.ExternalIP, int(presence.Endpoint.Port), 500*time.Millisecond)
 		if err != nil {
 			logger.Warn("Failed to healthcheck broadcaster", zap.Error(err))
 			time.Sleep(500 * time.Millisecond)
@@ -180,79 +201,35 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 	}
 	if !alive {
 		// If the broadcaster is not available, send an error message to the user on discord
-		errorMessage := fmt.Sprintf("Broadcaster (Endpoint ID: %s, Server ID: %d) could not be reached. Error: %v", config.Endpoint.ID(), config.ServerID, err)
+		errorMessage := fmt.Sprintf("Broadcaster (Endpoint ID: %s, Server ID: %d) could not be reached. Error: %v", presence.Endpoint.ID(), presence.ServerID, err)
 		go sendDiscordError(errors.New(errorMessage), discordId, logger, p.discordRegistry)
 		return errFailedRegistration(session, logger, errors.New(errorMessage), evr.BroadcasterRegistration_Failure)
 	}
 
-	p.broadcasterRegistrationBySession.Store(session.ID().String(), config)
-	p.matchmakingRegistry.broadcasters.Store(config.Endpoint.ID(), config.Endpoint)
-	// Create a new parking match
-	if err := p.newParkingMatch(logger, session, config); err != nil {
-		return errFailedRegistration(session, logger, err, evr.BroadcasterRegistration_Failure)
-	}
+	p.broadcasterRegistry.Add(presence)
+
 	// Send the registration success message
 	if err := session.SendEvr(
-		evr.NewBroadcasterRegistrationSuccess(config.ServerID, config.Endpoint.ExternalIP),
+		evr.NewBroadcasterRegistrationSuccess(uint64(presence.ServerID), presence.Endpoint.ExternalIP),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
 		return errFailedRegistration(session, logger, fmt.Errorf("failed to send lobby registration failure: %v", err), evr.BroadcasterRegistration_Failure)
 	}
 
-	go func() {
-		// Every 10 seconds, check that this broadcaster is a member of a match
-		// If not, disconnect the broadcaster
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-session.Context().Done():
-				return
-			case <-ticker.C:
-				if _, found := p.matchBySessionID.Load(session.ID().String()); !found {
-					logger.Warn("Broadcaster is not in a match, disconnecting")
-					session.Close("", runtime.PresenceReasonDisconnect)
-					return
-				}
-			}
-		}
-
-	}()
-
 	return nil
 }
 
-func extractAuthenticationDetailsFromContext(ctx context.Context) (discordId, password string, tags, guildIds []string, regions []evr.Symbol, err error) {
-	var ok bool
-
-	// Get the discord id from the context
-	discordId, ok = ctx.Value(ctxDiscordIdKey{}).(string)
-	if !ok || discordId == "" {
-		return "", "", nil, nil, nil, fmt.Errorf("no url params provided")
-	}
-
-	// Get the password from the context
-	password, ok = ctx.Value(ctxPasswordKey{}).(string)
-	if !ok || password == "" {
-		return "", "", nil, nil, nil, fmt.Errorf("no url params provided")
-	}
-
-	// Get the url params
-	params, ok := ctx.Value(ctxUrlParamsKey{}).(map[string][]string)
+func extractAuthenticationDetailsFromContext(ctx context.Context) (discordId, password string, tags []string, guildIds []string, err error) {
+	discordAuthID, userPassword, ok := parseBasicAuth(ctx.Value(ctxBasicAuthKey{}).(string))
 	if !ok {
-		return "", "", nil, nil, nil, fmt.Errorf("no url params provided")
+		err = ErrNoAuthProvided
+		return
 	}
-
-	// Get the tags from the url params
-	tags = make([]string, 0)
-	if tagsets, ok := params["tags"]; ok {
-		for _, tagstr := range tagsets {
-			tags = append(tags, strings.Split(tagstr, ",")...)
-		}
-	}
-
+	tags = ctx.Value(ctxTagsKey{}).([]string)
+	guildIds = ctx.Value(ctxDiscordGuildIDsKey{}).([]string)
+	return discordAuthID, userPassword, tags, guildIds, nil
 	regions = make([]evr.Symbol, 0)
+
 	if regionstr, ok := params["regions"]; ok {
 		for _, regionstr := range regionstr {
 			for _, region := range strings.Split(regionstr, ",") {
@@ -263,7 +240,6 @@ func extractAuthenticationDetailsFromContext(ctx context.Context) (discordId, pa
 			}
 		}
 	}
-
 	// Get the guilds that the broadcaster wants to host for
 	guildIds = make([]string, 0)
 	if guildparams, ok := params["guilds"]; ok {
@@ -276,12 +252,6 @@ func extractAuthenticationDetailsFromContext(ctx context.Context) (discordId, pa
 			}
 		}
 	}
-
-	// If the list of guilds is empty or contains "any", use the user's groups
-	if lo.Contains(guildIds, "any") {
-		guildIds = make([]string, 0)
-	}
-
 	return discordId, password, tags, guildIds, regions, nil
 }
 
@@ -307,36 +277,6 @@ func (p *EvrPipeline) authenticateBroadcaster(ctx context.Context, logger *zap.L
 	}
 
 	return userId, username, nil
-}
-
-func broadcasterConfig(userId, sessionId string, serverId uint64, internalIP, externalIP net.IP, port uint16, regions []evr.Symbol, versionLock uint64, tags, features []string) *MatchBroadcaster {
-
-	config := &MatchBroadcaster{
-		SessionID:  sessionId,
-		OperatorID: userId,
-		ServerID:   serverId,
-		Endpoint: evr.Endpoint{
-			InternalIP: internalIP,
-			ExternalIP: externalIP,
-			Port:       port,
-		},
-		Regions:     regions,
-		VersionLock: versionLock,
-		Channels:    make([]uuid.UUID, 0),
-		Features:    features,
-
-		Tags: make([]string, 0),
-	}
-
-	if len(tags) > 0 {
-		config.Tags = tags
-		if lo.Contains(tags, "membersonly") {
-			// Servers that are members only are not available for public hosting
-			config.Tags = append(config.Tags, "regiononly")
-		}
-	}
-
-	return config
 }
 
 func (p *EvrPipeline) getUserGroups(ctx context.Context, userID uuid.UUID, minState api.GroupUserList_GroupUser_State) ([]*api.UserGroupList_UserGroup, error) {
@@ -367,148 +307,73 @@ func (p *EvrPipeline) getBroadcasterHostGroups(ctx context.Context, logger *zap.
 		return nil, fmt.Errorf("failed to get user's guild groups: %v", err)
 	}
 
-	if len(memberships) == 0 {
-		return nil, fmt.Errorf("user is not a member of any guilds")
-	}
-	if len(guildIDs) == 0 {
-		// User all of the user's guilds
-		for _, g := range memberships {
-			guildIDs = append(guildIDs, g.GuildGroup.GuildID())
+		// Create a slice of user's guild group IDs
+		for _, g := range groups {
+			_, md, err := p.discordRegistry.GetGuildGroupMetadata(ctx, g.GetId())
+			if err != nil {
+				logger.Warn("Failed to get guild group metadata", zap.String("groupId", g.GetId()), zap.Error(err))
+				continue
+			}
+
+			guildIDs = append(guildIDs, md.GuildID)
 		}
 	}
 
 	desired := make([]GuildGroupMembership, 0, len(guildIDs))
 	for _, guildID := range guildIDs {
-		for _, m := range memberships {
-			if m.GuildGroup.GuildID() == guildID {
-				desired = append(desired, m)
-				break
-			}
-		}
-	}
-
-	userGroups, err := p.getUserGroups(ctx, uuid.FromStringOrNil(userId), api.GroupUserList_GroupUser_MEMBER)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user groups: %v", err)
-	}
-
-	userGroupIDs := make([]string, len(userGroups))
-	for i, g := range userGroups {
-		userGroupIDs[i] = g.GetGroup().GetId()
-	}
-
-	groupIDs = make([]uuid.UUID, 0, len(desired))
-	for _, m := range desired {
-		if m.isServerHost {
-			groupIDs = append(groupIDs, m.GuildGroup.ID())
+		if guildID == "" {
+			continue
 		}
 
+		// Get the guild member
+		member, err := p.discordRegistry.GetGuildMember(ctx, guildID, discordID)
+		if err != nil {
+			logger.Warn("User not a member of the guild", zap.String("guildId", guildID))
+			continue
+		}
+
+		// Get the group id for the guild
+		groupID, found := p.discordRegistry.Get(guildID)
+		if !found {
+			logger.Warn("Guild not found", zap.String("guildId", guildID))
+			continue
+		}
+
+		// Get the guild's metadata
+		_, md, err := p.discordRegistry.GetGuildGroupMetadata(ctx, groupID)
+		if err != nil {
+			logger.Warn("Failed to get guild group metadata", zap.String("groupId", groupID), zap.Error(err))
+			continue
+		}
+
+		// If the broadcaster role is blank, add it to the channels
+		if md.BroadcasterHostRole == "" {
+			allowed = append(allowed, guildID)
+			continue
+		}
+
+		// Verify the user has the broadcaster role
+		if !lo.Contains(member.Roles, md.BroadcasterHostRole) {
+			logger.Warn("User does not have the broadcaster role", zap.String("discordID", member.User.ID), zap.String("guildId", guildID))
+			//continue
+		}
+
+		// Add the channel to the list of hosting channels
+		allowed = append(allowed, guildID)
+	}
+
+	// Get the groupId for each guildId
+	groupIds := make([]uuid.UUID, 0)
+	for _, guildId := range allowed {
+		groupId, found := p.discordRegistry.Get(guildId)
+		if !found {
+			logger.Warn("Guild not found", zap.String("guildId", guildId))
+			continue
+		}
+		groupIds = append(groupIds, uuid.FromStringOrNil(groupId))
 	}
 
 	return groupIDs, nil
-}
-
-func (p *EvrPipeline) newParkingMatch(logger *zap.Logger, session *sessionWS, config *MatchBroadcaster) error {
-
-	// Create the match state from the config
-	_, params, _, err := NewEvrMatchState(config.Endpoint, config, session.id.String(), p.node)
-	if err != nil {
-		return fmt.Errorf("failed to create match state: %v", err)
-	}
-
-	// Create the match
-	matchId, err := p.matchRegistry.CreateMatch(context.Background(), p.runtime.matchCreateFunction, EvrMatchmakerModule, params)
-	if err != nil {
-		return fmt.Errorf("failed to create parking match: %v", err)
-	}
-	p.matchBySessionID.Store(session.ID().String(), matchId)
-	// (Attempt to) join the match
-	joinmsg := &rtapi.Envelope{
-		Message: &rtapi.Envelope_MatchJoin{
-			MatchJoin: &rtapi.MatchJoin{
-				Id:       &rtapi.MatchJoin_MatchId{MatchId: matchId},
-				Metadata: map[string]string{},
-			},
-		},
-	}
-
-	// Process the join request
-	if ok := session.pipeline.ProcessRequest(logger, session, joinmsg); !ok {
-		return fmt.Errorf("failed process join request")
-	}
-	logger.Debug("New parking match", zap.String("matchId", matchId))
-
-	return nil
-}
-
-func BroadcasterHealthcheck(localIP net.IP, remoteIP net.IP, port int, timeout time.Duration) (rtt time.Duration, err error) {
-	const (
-		pingRequestSymbol               uint64 = 0x997279DE065A03B0
-		RawPingAcknowledgeMessageSymbol uint64 = 0x4F7AE556E0B77891
-	)
-
-	laddr := &net.UDPAddr{
-		IP:   localIP,
-		Port: 0,
-	}
-
-	raddr := &net.UDPAddr{
-		IP:   remoteIP,
-		Port: int(port),
-	}
-	// Establish a UDP connection to the specified address
-	conn, err := net.DialUDP("udp", laddr, raddr)
-	if err != nil {
-		return 0, fmt.Errorf("could not establish connection to %v: %v", raddr, err)
-	}
-	defer conn.Close() // Ensure the connection is closed when the function ends
-
-	// Set a deadline for the connection to prevent hanging indefinitely
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
-		return 0, fmt.Errorf("could not set deadline for connection to %v: %v", raddr, err)
-	}
-
-	// Generate a random 8-byte number for the ping request
-	token := make([]byte, 8)
-	if _, err := rand.Read(token); err != nil {
-		return 0, fmt.Errorf("could not generate random number for ping request: %v", err)
-	}
-
-	// Construct the raw ping request message
-	request := make([]byte, 16)
-	response := make([]byte, 16)
-	binary.LittleEndian.PutUint64(request[:8], pingRequestSymbol) // Add the ping request symbol
-	copy(request[8:], token)                                      // Add the random number
-
-	// Start the timer
-	start := time.Now()
-
-	// Send the ping request to the broadcaster
-	if _, err := conn.Write(request); err != nil {
-		return 0, fmt.Errorf("could not send ping request to %v: %v", raddr, err)
-	}
-
-	// Read the response from the broadcaster
-	if _, err := conn.Read(response); err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			return -1, fmt.Errorf("ping request to %v timed out (>%dms)", raddr, timeout.Milliseconds())
-		}
-		return 0, fmt.Errorf("could not read ping response from %v: %v", raddr, err)
-	}
-	// Calculate the round trip time
-	rtt = time.Since(start)
-
-	// Check if the response's symbol matches the expected acknowledge symbol
-	if binary.LittleEndian.Uint64(response[:8]) != RawPingAcknowledgeMessageSymbol {
-		return 0, fmt.Errorf("received unexpected response from %v: %v", raddr, response)
-	}
-
-	// Check if the response's number matches the sent number, indicating a successful ping
-	if ok := binary.LittleEndian.Uint64(response[8:]) == binary.LittleEndian.Uint64(token); !ok {
-		return 0, fmt.Errorf("received unexpected response from %v: %v", raddr, response)
-	}
-
-	return rtt, nil
 }
 
 func BroadcasterPortScan(lIP net.IP, rIP net.IP, startPort, endPort int, timeout time.Duration) (map[int]time.Duration, []error) {

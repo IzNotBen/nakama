@@ -2,51 +2,49 @@ package evr
 
 import (
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
-// ReconcileIAP represents an in-app purchase related request.
-type ReconcileIAP struct {
+// IAPReconcile represents an in-app purchase related request.
+type IAPReconcile struct {
 	Message
-	Session uuid.UUID
+	Session GUID
 	EvrID   EvrId
 }
 
-func (m ReconcileIAP) Token() string {
+func (m IAPReconcile) Token() string {
 	return "SNSReconcileIAP"
 }
 
-func (m ReconcileIAP) Symbol() Symbol {
+func (m IAPReconcile) Symbol() Symbol {
 	return ToSymbol(m.Token())
 }
 
-func (m ReconcileIAP) String() string {
+func (m IAPReconcile) String() string {
 	return fmt.Sprintf("%s()", m.Token())
 }
 
-func NewReconcileIAP(userID EvrId, session uuid.UUID) *ReconcileIAP {
-	return &ReconcileIAP{
+func NewIAPReconcile(userID EvrId, session GUID) *IAPReconcile {
+	return &IAPReconcile{
 		EvrID:   userID,
 		Session: session,
 	}
 }
 
-func (r *ReconcileIAP) Stream(s *EasyStream) error {
+func (r *IAPReconcile) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&r.Session) },
+		func() error { return s.StreamGuid(r.Session) },
 		func() error { return s.StreamStruct(&r.EvrID) },
 	})
 }
 
-func (r *ReconcileIAP) ToString() string {
+func (r *IAPReconcile) ToString() string {
 	return fmt.Sprintf("%s(user_id=%s, session=%v)", r.Token(), r.EvrID.Token(), r.Session)
 }
 
-func (m *ReconcileIAP) GetSessionID() uuid.UUID {
+func (m *IAPReconcile) GetSessionID() GUID {
 	return m.Session
 }
 
-func (m *ReconcileIAP) GetEvrID() EvrId {
+func (m *IAPReconcile) GetEvrID() EvrId {
 	return m.EvrID
 }

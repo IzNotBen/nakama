@@ -3,8 +3,11 @@ package evr
 import (
 	"encoding/binary"
 	"fmt"
+)
 
-	"github.com/gofrs/uuid/v5"
+var (
+	_ = IdentifyingMessage(&LobbyCreateSessionRequest{})
+	_ = LobbySessionRequest(&LobbyCreateSessionRequest{})
 )
 
 var (
@@ -14,18 +17,18 @@ var (
 // LobbyCreateSessionRequest represents a request from the client to the server for creating a new game session.
 type LobbyCreateSessionRequest struct {
 	Region          Symbol          // Symbol representing the region
-	VersionLock     int64           // Version lock
+	VersionLock     Symbol          // Version lock
 	Mode            Symbol          // Symbol representing the game type
 	Level           Symbol          // Symbol representing the level
 	Platform        Symbol          // Symbol representing the platform
-	LoginSessionID  uuid.UUID       // Session identifier
+	LoginSessionID  GUID            // Session identifier
 	Unk1            uint64          // Unknown field 1
-	LobbyType       uint32          // the visibility of the session to create.
+	LobbyType       LobbyType       // the visibility of the session to create.
 	Unk2            uint32          // Unknown field 2
-	Channel         uuid.UUID       // Channel UUID
+	Channel         GUID            // Channel UUID
 	SessionSettings SessionSettings // Session settings
 	EvrId           EvrId           // User ID
-	TeamIndex       int16           // Index of the team
+	TeamIndex       Role            // Index of the team
 }
 
 func (m LobbyCreateSessionRequest) Token() string {
@@ -43,11 +46,11 @@ func (m *LobbyCreateSessionRequest) Stream(s *EasyStream) error {
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Mode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Level) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Platform) },
-		func() error { return s.StreamGuid(&m.LoginSessionID) },
+		func() error { return s.StreamGuid(m.LoginSessionID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.LobbyType) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk2) },
-		func() error { return s.StreamGuid(&m.Channel) },
+		func() error { return s.StreamGuid(m.Channel) },
 		func() error { return s.StreamJson(&m.SessionSettings, true, NoCompression) },
 		func() error { return s.StreamStruct(&m.EvrId) },
 		func() error {
@@ -79,10 +82,18 @@ func (m *LobbyCreateSessionRequest) String() string {
 	)
 }
 
-func (m *LobbyCreateSessionRequest) GetSessionID() uuid.UUID {
+func (m *LobbyCreateSessionRequest) GetSessionID() GUID {
 	return m.LoginSessionID
 }
 
 func (m *LobbyCreateSessionRequest) GetEvrID() EvrId {
 	return m.EvrId
+}
+
+func (m *LobbyCreateSessionRequest) GetChannel() GUID {
+	return m.Channel
+}
+
+func (m *LobbyCreateSessionRequest) GetMode() Symbol {
+	return m.Mode
 }

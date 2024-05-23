@@ -2,14 +2,12 @@ package evr
 
 import (
 	"fmt"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 // BroadcasterPlayerRemoved is a message from broadcaster to nakama, indicating a player was removed by the game server.
 // NOTE: This is an unofficial message created for Echo Relay.
 type BroadcasterPlayerRemoved struct {
-	PlayerSession uuid.UUID
+	PlayerSession GUID
 }
 
 func (m *BroadcasterPlayerRemoved) Symbol() Symbol {
@@ -20,7 +18,7 @@ func (m BroadcasterPlayerRemoved) Token() string {
 }
 
 // NewERGameServerRemovePlayer initializes a new ERGameServerRemovePlayer message.
-func NewBroadcasterRemovePlayer(sid uuid.UUID) *BroadcasterPlayerRemoved {
+func NewBroadcasterRemovePlayer(sid GUID) *BroadcasterPlayerRemoved {
 	return &BroadcasterPlayerRemoved{
 		PlayerSession: sid,
 	}
@@ -28,7 +26,7 @@ func NewBroadcasterRemovePlayer(sid uuid.UUID) *BroadcasterPlayerRemoved {
 
 func (m *BroadcasterPlayerRemoved) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.PlayerSession) },
+		func() error { return s.StreamGuid(m.PlayerSession) },
 	})
 }
 func (m *BroadcasterPlayerRemoved) String() string {

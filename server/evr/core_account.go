@@ -47,27 +47,21 @@ func (g *GUID) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (g GUID) MarshalBytes() []byte {
-	b := uuid.UUID(g).Bytes()
+func (g *GUID) UnmarshalBinary(b []byte) error {
+	copy(g[:], b)
 	b[0], b[1], b[2], b[3] = b[3], b[2], b[1], b[0]
 	b[4], b[5] = b[5], b[4]
 	b[6], b[7] = b[7], b[6]
-	return b
+	return nil
 }
 
-func (g *GUID) UnmarshalBytes(b []byte) error {
-	if len(b) != 16 {
-		return fmt.Errorf("GUID: UUID must be exactly 16 bytes long, got %d bytes", len(b))
-	}
+// MarshalBinary implements the encoding.BinaryMarshaler interface.
+func (g GUID) MarshalBinary() (b []byte, err error) {
+	copy(b, g[:])
 	b[0], b[1], b[2], b[3] = b[3], b[2], b[1], b[0]
 	b[4], b[5] = b[5], b[4]
 	b[6], b[7] = b[7], b[6]
-	u, err := uuid.FromBytes(b)
-	if err != nil {
-		return err
-	}
-	*g = GUID(u)
-	return nil
+	return b, nil
 }
 
 func init() {
@@ -105,7 +99,6 @@ func (r *GameProfiles) Marshal() ([]byte, error) {
 }
 
 type ClientProfile struct {
-	// WARNING: EchoVR dictates this struct/schema.
 	DisplayName string `json:"displayname,omitempty"` // Ignored and set by nakama
 	EvrID       EvrId  `json:"xplatformid,omitempty"` // Ignored and set by nakama
 
@@ -228,8 +221,8 @@ type ServerProfile struct {
 	UnlockedCosmetics UnlockedCosmetics `json:"unlocks,omitempty"`                              // Unlocked cosmetics
 	EquippedCosmetics EquippedCosmetics `json:"loadout,omitempty"`                              // Equipped cosmetics
 	Social            ServerSocial      `json:"social,omitempty"`                               // Social settings
-	Achievements      interface{}       `json:"achievements,omitempty"`                         // Achievements
-	RewardState       interface{}       `json:"reward_state,omitempty"`                         // Reward state?
+	Achievements      any               `json:"achievements,omitempty"`                         // Achievements
+	RewardState       any               `json:"reward_state,omitempty"`                         // Reward state?
 	// If DeveloperFeatures is not null, the player will have a gold name
 	DeveloperFeatures *DeveloperFeatures `json:"dev,omitempty"` // Developer features
 }
@@ -1567,7 +1560,7 @@ func NewServerProfile() ServerProfile {
 // DisableRestrictedCosmetics sets all the restricted cosmetics to false.
 func (s *ServerProfile) DisableRestrictedCosmetics() error {
 	// Set all the VRML cosmetics to false
-	structs := []interface{}{s.UnlockedCosmetics.Arena, s.UnlockedCosmetics.Combat}
+	structs := []any{s.UnlockedCosmetics.Arena, s.UnlockedCosmetics.Combat}
 	for _, t := range structs {
 		v := reflect.ValueOf(t).Elem()
 		for i := 0; i < v.NumField(); i++ {

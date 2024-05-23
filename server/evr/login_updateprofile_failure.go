@@ -31,10 +31,10 @@ func (m *UpdateProfileFailure) Stream(s *EasyStream) error {
 	})
 }
 
-func NewUpdateProfileFailure(evrId EvrId, statusCode uint64, message string) *UpdateProfileFailure {
+func NewUpdateProfileFailure(evrId EvrId, statusCode int, message string) *UpdateProfileFailure {
 	return &UpdateProfileFailure{
 		EvrId:      evrId,
-		statusCode: statusCode,
+		statusCode: uint64(statusCode),
 		Message:    message,
 	}
 }
