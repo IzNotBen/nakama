@@ -163,11 +163,11 @@ type Players struct {
 
 type LegalConsents struct {
 	// WARNING: EchoVR dictates this struct/schema.
-	PointsPolicyVersion int64 `json:"points_policy_version,omitempty"`
-	EulaVersion         int64 `json:"eula_version,omitempty"`
-	GameAdminVersion    int64 `json:"game_admin_version,omitempty"`
-	SplashScreenVersion int64 `json:"splash_screen_version,omitempty"`
-	GroupsLegalVersion  int64 `json:"groups_legal_version,omitempty"`
+	PointsPolicyVersion uint64 `json:"points_policy_version,omitempty"`
+	EulaVersion         uint64 `json:"eula_version,omitempty"`
+	GameAdminVersion    uint64 `json:"game_admin_version,omitempty"`
+	SplashScreenVersion uint64 `json:"splash_screen_version,omitempty"`
+	GroupsLegalVersion  uint64 `json:"groups_legal_version,omitempty"`
 }
 
 type NewPlayerProgress struct {
@@ -195,9 +195,9 @@ type Versioned struct {
 
 type ClientSocial struct {
 	// WARNING: EchoVR dictates this struct/schema.
-	CommunityValuesVersion int64 `json:"community_values_version,omitempty" validate:"gte=0"`
-	SetupVersion           int64 `json:"setup_version,omitempty" validate:"gte=0"`
-	Channel                GUID  `json:"group,omitempty" validate:"uuid_rfc4122"` // The channel. It is a GUID, uppercase.
+	CommunityValuesVersion uint64 `json:"community_values_version,omitempty" validate:"gte=0"`
+	SetupVersion           uint64 `json:"setup_version,omitempty" validate:"gte=0"`
+	Channel                GUID   `json:"group,omitempty" validate:"uuid_rfc4122"` // The channel. It is a GUID, uppercase.
 }
 
 type ServerSocial struct {
@@ -209,14 +209,14 @@ type ServerProfile struct {
 	// TODO Add comments for what these are
 	DisplayName       string            `json:"displayname"`                                    // Overridden by nakama
 	EvrID             EvrId             `json:"xplatformid"`                                    // Overridden by nakama
-	SchemaVersion     int16             `json:"_version,omitempty" validate:"gte=0"`            // Version of the schema(?)
+	SchemaVersion     uint64            `json:"_version,omitempty" validate:"gte=0"`            // Version of the schema(?)
 	PublisherLock     string            `json:"publisher_lock,omitempty"`                       // unused atm
-	PurchasedCombat   int8              `json:"purchasedcombat,omitempty" validate:"eq=0|eq=1"` // unused (combat was made free)
+	PurchasedCombat   uint64            `json:"purchasedcombat,omitempty" validate:"eq=0|eq=1"` // unused (combat was made free)
 	LobbyVersion      uint64            `json:"lobbyversion" validate:"gte=0"`                  // set from the login request
 	LoginTime         int64             `json:"logintime" validate:"gte=0"`                     // When the player logged in
 	UpdateTime        int64             `json:"updatetime" validate:"gte=0"`                    // When the profile was last stored.
 	CreateTime        int64             `json:"createtime" validate:"gte=0"`                    // When the player's nakama account was created.
-	Statistics        PlayerStatistics  `json:"stats,omitempty"`                                // Player statistics
+	Statistics        map[string]any    `json:"stats,omitempty"`                                // Player statistics
 	MaybeStale        bool              `json:"maybestale,omitempty" validate:"boolean"`        // If the profile is stale
 	UnlockedCosmetics UnlockedCosmetics `json:"unlocks,omitempty"`                              // Unlocked cosmetics
 	EquippedCosmetics EquippedCosmetics `json:"loadout,omitempty"`                              // Equipped cosmetics
@@ -1503,15 +1503,16 @@ func NewServerProfile() ServerProfile {
 			},
 			Number: 1,
 		},
-		Statistics: PlayerStatistics{
-			Arena: ArenaStatistics{
+		Statistics: map[string]any{
+
+			"arena": ArenaStatistics{
 				Level: LevelStatistic{
 					Count:   1,
 					Operand: "add",
 					Value:   1,
 				},
 			},
-			Combat: CombatStatistics{
+			"combat": CombatStatistics{
 				Level: LevelStatistic{
 					Count:   1,
 					Operand: "add",
