@@ -19,23 +19,22 @@ import (
 
 // Represents identity information for a single match participant.
 type BroadcasterPresence struct {
-	ServerID      evr.Symbol   `json:"id,omitempty"`             // The server id of the broadcaster. (EVR)
-	Endpoint      evr.Endpoint `json:"endpoint,omitempty"`       // The endpoint data used for connections.
-	VersionLock   evr.Symbol   `json:"version_lock,omitempty"`   // The game build version. (EVR)
-	PublisherLock bool         `json:"publisher_lock,omitempty"` // Publisher lock (EVR)
-	AppID         int64        `json:"app_id,omitempty"`         // The game app id. (EVR)
-	Region        evr.Symbol   `json:"region,omitempty"`         // The region the match is hosted in. (Matching Only) (EVR)
-	Channels      []uuid.UUID  `json:"channels,omitempty"`       // The channels this broadcaster will host matches for.
-	Tags          []string     `json:"tags,omitempty"`           // The tags given on the urlparam for the match.
-	UserID        uuid.UUID    `json:"userid,omitempty"`
-	SessionID     uuid.UUID    `json:"session_id,omitempty"`
-	Username      string       `json:"username,omitempty"`
-	ClientIP      string       `json:"client_ip,omitempty"`
-	EvrID         evr.EvrId    `json:"evr_id,omitempty"`
-	DiscordID     string       `json:"discord_id,omitempty"`
-	SessionFlags  SessionFlags `json:"session_flags,omitempty"`
-	Node          string       `json:"node,omitempty"`
-	session       *sessionWS
+	ServerID     evr.Symbol   `json:"id,omitempty"`           // The server id of the broadcaster. (EVR)
+	Endpoint     evr.Endpoint `json:"endpoint,omitempty"`     // The endpoint data used for connections.
+	VersionLock  evr.Symbol   `json:"version_lock,omitempty"` // The game build version. (EVR)
+	AppID        int64        `json:"app_id,omitempty"`       // The app id of the broadcaster. (EVR)
+	Region       evr.Symbol   `json:"region,omitempty"`       // The region the match is hosted in. (Matching Only) (EVR)
+	Channels     []uuid.UUID  `json:"channels,omitempty"`     // The channels this broadcaster will host matches for.
+	Tags         []string     `json:"tags,omitempty"`         // The tags given on the urlparam for the match.
+	UserID       uuid.UUID    `json:"userid,omitempty"`
+	SessionID    uuid.UUID    `json:"session_id,omitempty"`
+	Username     string       `json:"username,omitempty"`
+	ClientIP     string       `json:"client_ip,omitempty"`
+	EvrID        evr.EvrId    `json:"evr_id,omitempty"`
+	DiscordID    string       `json:"discord_id,omitempty"`
+	SessionFlags SessionFlags `json:"session_flags,omitempty"`
+	Node         string       `json:"node,omitempty"`
+	session      *sessionWS
 }
 
 func (p BroadcasterPresence) GetUserId() string                 { return p.UserID.String() }
@@ -52,7 +51,12 @@ type Broadcaster struct {
 	Presence      BroadcasterPresence
 	LabelString   string
 	LastHeartbeat time.Time
-	MatchID       MatchID
+}
+
+type BroadcasterParams struct {
+	VersionLock evr.Symbol
+	GroupID     uuid.UUID
+	Region      evr.Symbol
 }
 
 type BroadcasterRegistry struct {
@@ -61,10 +65,12 @@ type BroadcasterRegistry struct {
 	metrics Metrics
 	logger  *zap.Logger
 
-	broadcasters map[evr.Symbol]map[uuid.UUID]Broadcaster // BroadcasterType -> SessionID -> Broadcaster
-	health       map[uuid.UUID]time.Time
+	broadcasters                           map[evr.Symbol]map[uuid.UUID]Broadcaster // map[VersionLock]map[SessionID]Broadcaster
+	broadcastersByVersionByChannelByRegion map[BroadcasterParams][]Broadcaster      // map[VersionLock/Channel/Region]map[SessionID]Broadcaster
+	health                                 map[uuid.UUID]time.Time
 
-	allocated map[uuid.UUID]evr.Symbol
+	allocated map[uuid.UUID]MatchID // map[sessionID]matchID
+
 	//BroadcastersByParameters map[BroadcasterParams]map[uuid.UUID]*Broadcaster
 }
 
@@ -133,18 +139,61 @@ func (br *BroadcasterRegistry) Get(id uuid.UUID) Broadcaster {
 	return Broadcaster{}
 }
 
-func (br *BroadcasterRegistry) GetBroadcasters(versionLock evr.Symbol, inMatch bool) map[uuid.UUID]Broadcaster {
+func (br *BroadcasterRegistry) GetBroadcasters(versionLock evr.Symbol, includeAllocated bool) map[uuid.UUID]Broadcaster {
 	br.RLock()
 	defer br.RUnlock()
 	result := make(map[uuid.UUID]Broadcaster)
 	if b, ok := br.broadcasters[versionLock]; ok {
 		for id, registration := range b {
-			if inMatch || registration.MatchID.IsNil() {
+			if includeAllocated || br.allocated[id].IsNil() {
 				result[id] = registration
 			}
 		}
 	}
 	return result
+}
+
+func (br *BroadcasterRegistry) AllocateBroadcaster(versionLock evr.Symbol, groupIDs []uuid.UUID, regions []evr.Symbol, endpointPriority []string) *Broadcaster {
+	br.Lock()
+	defer br.Unlock()
+	options := make(map[string]Broadcaster, 0)
+
+	for _, groupID := range groupIDs {
+		for _, region := range regions {
+
+			p := BroadcasterParams{
+				VersionLock: versionLock,
+				GroupID:     groupID,
+				Region:      region,
+			}
+
+			for _, b := range br.broadcastersByVersionByChannelByRegion[p] {
+				options[b.Presence.Endpoint.ID()] = b
+			}
+
+		}
+	}
+
+	for _, e := range endpointPriority {
+		for endpointID, registration := range options {
+			if endpointID == e {
+				go func() {
+					tempID := MatchID{
+						uuid: uuid.Nil,
+						node: "temp",
+					}
+
+					br.allocated[registration.Presence.SessionID] = tempID
+					<-time.After(15 * time.Second)
+					if br.allocated[registration.Presence.SessionID] == tempID {
+						delete(br.allocated, registration.Presence.SessionID)
+					}
+				}()
+				return &registration
+			}
+		}
+	}
+	return nil
 }
 
 func (br *BroadcasterRegistry) HealthCheck() {
