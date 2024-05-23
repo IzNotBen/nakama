@@ -65,7 +65,7 @@ func InitializeEvrRuntimeModule(ctx context.Context, logger runtime.Logger, db *
 	RegisterIndexes(initializer)
 
 	// Create the core groups
-	if err := createCoreGroups(ctx, logger, db, nk, initializer); err != nil {
+	if err := createCoreGroups(ctx, logger, nk); err != nil {
 		return fmt.Errorf("unable to create core groups: %v", err)
 	}
 
@@ -224,7 +224,7 @@ func metricsUpdateLoop(ctx context.Context, logger runtime.Logger, nk *RuntimeGo
 	}
 }
 
-func createCoreGroups(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, initializer runtime.Initializer) error {
+func createCoreGroups(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule) error {
 	// Create user for use by the discord bot (and core group ownership)
 	userId, _, _, err := nk.AuthenticateDevice(ctx, SystemUserID, "discordbot", true)
 	if err != nil {
