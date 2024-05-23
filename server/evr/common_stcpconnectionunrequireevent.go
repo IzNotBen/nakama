@@ -13,7 +13,7 @@ func (m *STcpConnectionUnrequireEvent) Symbol() Symbol {
 }
 
 func (m *STcpConnectionUnrequireEvent) Stream(s *EasyStream) error {
-	return s.StreamByte(&m.Unused)
+	return s.Skip(1)
 }
 
 func (m STcpConnectionUnrequireEvent) String() string {
@@ -21,7 +21,5 @@ func (m STcpConnectionUnrequireEvent) String() string {
 }
 
 func NewSTcpConnectionUnrequireEvent() *STcpConnectionUnrequireEvent {
-	return &STcpConnectionUnrequireEvent{
-		Unused: byte(0),
-	}
+	return &STcpConnectionUnrequireEvent{}
 }
