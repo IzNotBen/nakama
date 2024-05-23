@@ -35,15 +35,43 @@ var (
 	LevelPtyPebbles   Symbol = ToSymbol("pty_mpl_combat_pebbles") // Echo Combat
 
 	BuildVersions = map[string]Symbol{ // VersionLock's
-		"goldmaster 631547": ToSymbol("0xc62f01d78f77910d"),
+		"goldmaster 631547": Symbol(0xc62f01d78f77910d),
 	}
+
 	AppIDs = map[string]string{
 		"1369078409873402": "Echo VR",
+	}
+
+	ModeLevels = map[Symbol][]Symbol{
+		ModeArenaPublic:          {LevelArena},
+		ModeArenaPrivate:         {LevelArena},
+		ModeArenaTournment:       {LevelArena},
+		ModeArenaPublicAI:        {LevelArena},
+		ModeArenaTutorial:        {LevelArena},
+		ModeSocialPublic:         {LevelSocial},
+		ModeSocialPrivate:        {LevelSocial},
+		ModeSocialNPE:            {LevelSocial},
+		ModeCombatPublic:         {LevelCombustion, LevelDyson, LevelFission, LevelGauss},
+		ModeCombatPrivate:        {LevelCombustion, LevelDyson, LevelFission, LevelGauss},
+		ModeEchoCombatTournament: {LevelCombustion, LevelDyson, LevelFission, LevelGauss},
+	}
+	ModeTypes = map[Symbol]LobbyType{
+		ModeArenaPublic:          PublicLobby,
+		ModeArenaPrivate:         PrivateLobby,
+		ModeArenaTournment:       PublicLobby,
+		ModeArenaPublicAI:        PublicLobby,
+		ModeArenaTutorial:        PublicLobby,
+		ModeSocialPublic:         PublicLobby,
+		ModeSocialPrivate:        PrivateLobby,
+		ModeSocialNPE:            PublicLobby,
+		ModeCombatPublic:         PublicLobby,
+		ModeCombatPrivate:        PrivateLobby,
+		ModeEchoCombatTournament: PrivateLobby,
 	}
 )
 
 type IdentifyingMessage interface {
-	GetSessionID() uuid.UUID
+	GetSessionID() GUID
 	GetEvrID() EvrId
 }
 
