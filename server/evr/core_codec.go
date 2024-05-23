@@ -3,7 +3,6 @@ package evr
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -11,7 +10,7 @@ import (
 )
 
 var (
-	MessageMarker     = []byte{246, 64, 187, 120, 162, 231, 140, 187}
+	MessageMarker     = []byte{0xf6, 0x40, 0xbb, 0x78, 0xa2, 0xe7, 0x8c, 0xbb}
 	MaxPacketLength   = 1024 * 1024 * 10 // 10MB
 	MaxMessageLength  = 0x8000           // 32KB
 	ErrInvalidPacket  = errors.New("invalid packet")
@@ -21,6 +20,10 @@ var (
 )
 
 type Symbol uint64
+
+func (s Symbol) Uint64() uint64 {
+	return uint64(s)
+}
 
 func (s Symbol) IsNil() bool {
 	return s == 0xffffffffffffffff || s == 0
@@ -39,16 +42,16 @@ func (s Symbol) IsNotNil() bool {
 // or returns the hex string representation of the token.
 // ToSymbol will detect 0x prefixed hex strings.
 func (s Symbol) Token() SymbolToken {
-	t, ok := SymbolCache[uint64(s)]
+	t, ok := CoreSymbols[uint64(s)]
 	if !ok {
 		// If it's not found, just return the number as a hex string
-		str := strconv.FormatUint(uint64(s), 16)
-		t = SymbolToken(fmt.Sprintf("0x%016s", str))
+		t = SymbolToken(fmt.Sprintf("0x%016x", uint64(s)))
 	}
 	return t
 }
 
 func (s Symbol) MarshalBytes() (b []byte) {
+	b = make([]byte, 8)
 	// Encode little-endian uint64
 	binary.LittleEndian.PutUint64(b, uint64(s))
 	return
@@ -59,17 +62,12 @@ func (s *Symbol) UnmarshalBytes(b []byte) {
 	*s = Symbol(binary.LittleEndian.Uint64(b))
 }
 
-func (s Symbol) MarshalJSON() ([]byte, error) {
-	v := s.Token().String()
-	return json.Marshal(v)
+func (s Symbol) MarshalText() ([]byte, error) {
+	return []byte(s.Token().String()), nil
 }
 
-func (s *Symbol) UnmarshalJSON(data []byte) error {
-	var v string
-	if err := json.Unmarshal(data, &v); err != nil {
-		return err
-	}
-	*s = ToSymbol(v)
+func (s *Symbol) UnmarshalText(data []byte) error {
+	*s = ToSymbol(string(data))
 	return nil
 }
 
@@ -157,7 +155,7 @@ func NewCodec(ignoredSymbols []uint64) *Codec {
 		binary.LittleEndian.PutUint64(ignoredPatterns[i], s)
 	}
 
-	symbolMap := map[uint64]any{
+	messageSymbols := map[uint64]any{
 		// This is the complete list of implemented message types.
 		0x4c1fed6cb4d96c64: (*SNSLobbySmiteEntrant)(nil),
 		0x013e99cb47eb3669: (*GenericMessage)(nil),
@@ -168,7 +166,7 @@ func NewCodec(ignoredSymbols []uint64) *Codec {
 		0x1230073227050cb5: (*OtherUserProfileSuccess)(nil),
 		0x1231172031050cb2: (*OtherUserProfileRequest)(nil),
 		0x128b777ae0ebb650: (*LobbyMatchmakerStatusRequest)(nil),
-		0x1bd0fc454c85573c: (*ReconcileIAP)(nil),
+		0x1bd0fc454c85573c: (*IAPReconcile)(nil),
 		0x244b47685187eae1: (*RemoteLogSet)(nil),
 		0x2f03468f77ffb211: (*LobbyJoinSessionRequest)(nil),
 		0x312c2a01819aa3f5: (*LobbyFindSessionRequest)(nil),
@@ -225,18 +223,20 @@ func NewCodec(ignoredSymbols []uint64) *Codec {
 		0xfb772a4221fc8d70: (*LoggedInUserProfileRequest)(nil),
 		0xfcced6f169822bb8: (*DocumentRequest)(nil),
 		0xff71856af7e0fbd9: (*LobbyPlayerSessionsSuccessUnk1)(nil),
+		0xf1cefc446985b4f5: (*IAPPurchaseItems)(nil),
 	}
 
-	symbolLookup := make(map[string]uint64, len(symbolMap))
+	symbolLookup := make(map[string]uint64, len(messageSymbols))
 	// Populate the new map
-	for key, value := range symbolMap {
+	for key, value := range messageSymbols {
 		typeName := reflect.TypeOf(value).String()
 		symbolLookup[typeName] = key
 	}
 
 	return &Codec{
 		magic:           MessageMarker,
-		symbolMap:       symbolMap,
+		symbolMap:       messageSymbols,
+		symbolLookup:    symbolLookup,
 		ignoredSymbols:  ignoredSymbols,
 		ignoredPatterns: ignoredPatterns,
 	}
@@ -249,6 +249,7 @@ func (p *Codec) FromSymbol(symbol Symbol) (any, error) {
 	}
 	return typ, nil
 }
+
 func (p *Codec) depacketize(packet []byte) (chunks [][]byte) {
 	if !bytes.HasPrefix(packet, MessageMarker) {
 		return nil
@@ -293,6 +294,7 @@ func (p *Codec) encode(data []byte, message Message) (symbol uint64, err error) 
 
 func (p *Codec) wrap(symbol uint64, data []byte) (chunk []byte, err error) {
 	// Write the Header (Marker + Symbol + Data Length)
+
 	chunk = appendUint64(chunk, symbol)
 	chunk = appendUint64(chunk, uint64(len(data)))
 	// Write the message data.
@@ -300,30 +302,35 @@ func (p *Codec) wrap(symbol uint64, data []byte) (chunk []byte, err error) {
 	return chunk, nil
 }
 
+func (p *Codec) packetize(chunks [][]byte) (packet []byte) {
+	return append(MessageMarker, bytes.Join(chunks, MessageMarker)...)
+}
+
+// Wrap returns the wire-format encoding of a single message.
 func (p *Codec) Wrap(symbol Symbol, data []byte) (chunk []byte, err error) {
 	return p.wrap(uint64(symbol), data)
 }
 
-func (p *Codec) packetize(chunks [][]byte) (packet []byte) {
-	if len(chunks) == 0 {
-		return nil
+func (p *Codec) Packetize(chunks ...[]byte) (packet []byte) {
+	// Skip empty and remove existing markers
+	for i, chunk := range chunks {
+		if len(chunk) == 0 {
+			chunks = append(chunks[:i], chunks[i+1:]...)
+		}
+		if bytes.HasPrefix(chunk, MessageMarker) {
+			chunks[i] = chunk[8:]
+		}
 	}
-	if len(chunks) == 1 {
-		return append(MessageMarker, chunks[0]...)
-	}
-	if bytes.HasPrefix(chunks[0], MessageMarker) {
-		return bytes.Join(chunks, MessageMarker)
-	}
-	return append(MessageMarker, bytes.Join(chunks, MessageMarker)...)
+	return p.packetize(chunks)
 }
 
 // Marshal returns the wire-format encoding of multiple messages.
-func (p *Codec) Marshal(msgs ...Message) (packet []byte, errs error) {
+func (p *Codec) Marshal(messages ...Message) (packet []byte, errs error) {
 	var err error
 	var symbol uint64
-	chunks := make([][]byte, 0, len(msgs))
+	chunks := make([][]byte, 0, len(messages))
 
-	for _, m := range msgs {
+	for _, m := range messages {
 		data := make([]byte, 0)
 		symbol, err = p.encode(data, m)
 		if err != nil {
@@ -373,14 +380,6 @@ func (p *Codec) Unmarshal(data []byte) (messages []Message, err error) {
 	}
 
 	return nil, errs
-}
-
-func (p *Codec) AddHeader(symbol uint64, message Message) (packet []byte, err error) {
-	data := make([]byte, 0)
-	if _, err = p.encode(data, message); err != nil {
-		return nil, err
-	}
-	return p.wrap(symbol, data)
 }
 
 // AppendUint64 appends the (little-endian) byte representation of v to b and returns the resulting slice.

@@ -1,9 +1,5 @@
 package evr
 
-type STcpConnectionUnrequireEvent struct {
-	Unused byte
-}
-
 func (m STcpConnectionUnrequireEvent) Token() string {
 	return "STcpConnectionUnrequireEvent"
 }

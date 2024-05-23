@@ -60,6 +60,7 @@ type EndpointPingResult struct {
 	PingMilliseconds uint32 // PingMilliseconds is the ping time the client took to reach the game server, in milliseconds.
 }
 
+// EndpointID() returns a unique identifier (internal:external) for the endpoint.
 func (m EndpointPingResult) EndpointID() string {
 	return fmt.Sprintf("%s:%s", m.GetInternalIP(), m.GetExternalIP())
 }

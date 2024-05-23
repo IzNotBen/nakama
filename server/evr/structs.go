@@ -1,7 +1,10 @@
 package evr
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
+	"fmt"
 
 	"github.com/go-restruct/restruct"
 )
@@ -11,9 +14,9 @@ type Packet struct {
 }
 
 type Chunk struct {
-	Magic [8]byte
-	Type  uint64
-	Len   uint64
+	Magic []byte `struct:"[8]byte"`
+	Type  Symbol `struct:"uint64"`
+	Len   int    `struct:"uint64,sizeof=Data"`
 	Data  struct {
 		GenericMessage                     *GenericMessage                    `struct-case:"0x013e99cb47eb3669" json:",omitempty"`
 		MatchEnded                         *MatchEnded                        `struct-case:"0x80119c19ac72d695" json:",omitempty"`
@@ -22,7 +25,7 @@ type Chunk struct {
 		OtherUserProfileSuccess            *OtherUserProfileSuccess           `struct-case:"0x1230073227050cb5" json:",omitempty"`
 		OtherUserProfileRequest            *OtherUserProfileRequest           `struct-case:"0x1231172031050cb2" json:",omitempty"`
 		LobbyMatchmakerStatusRequest       *LobbyMatchmakerStatusRequest      `struct-case:"0x128b777ae0ebb650" json:",omitempty"`
-		ReconcileIAP                       *ReconcileIAP                      `struct-case:"0x1bd0fc454c85573c" json:",omitempty"`
+		ReconcileIAP                       *IAPReconcile                      `struct-case:"0x1bd0fc454c85573c" json:",omitempty"`
 		RemoteLogSet                       *RemoteLogSet                      `struct-case:"0x244b47685187eae1" json:",omitempty"`
 		LobbyJoinSessionRequest            *LobbyJoinSessionRequest           `struct-case:"0x2f03468f77ffb211" json:",omitempty"`
 		LobbyFindSessionRequest            *LobbyFindSessionRequest           `struct-case:"0x312c2a01819aa3f5" json:",omitempty"`
@@ -94,4 +97,111 @@ func Unpack(data []byte) (p *Packet, err error) {
 
 func Pack(p *Packet) (data []byte, err error) {
 	return restruct.Pack(binary.LittleEndian, p)
+}
+
+type STcpConnectionUnrequireEvent struct {
+	_ byte
+}
+
+type NullTerminatedJSONData struct {
+	value any
+	data  []byte
+}
+
+func NewNullTerminatedJSONData(value any) (*NullTerminatedJSONData, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return &NullTerminatedJSONData{
+		value: value,
+		data:  data,
+	}, nil
+}
+
+func (n *NullTerminatedJSONData) SizeOf() int {
+	return len(n.data) + 1
+}
+
+func (x *NullTerminatedJSONData) Packer(buf []byte, order binary.ByteOrder) ([]byte, error) {
+	buf = append(buf, x.data...)
+	buf = append(buf, 0)
+	return buf, nil
+}
+
+type ConfigRequest struct {
+	Type string
+	ID   string
+}
+
+func (m *ConfigRequest) Unpack(buf []byte, order binary.ByteOrder) ([]byte, error) {
+	// Get the JSON data
+	// Skip the type tail, and remove the null terminator
+	if len(buf) < 2 {
+		return buf, fmt.Errorf("buffer too short")
+	}
+	// Skip the type tail and remove the null terminator
+	buf = buf[1 : len(buf)-1]
+
+	// Unmarshal the JSON data into the struct
+	if err := json.Unmarshal(buf, m); err != nil {
+		return buf, err
+	}
+	return nil, nil
+}
+
+func (m *ConfigRequest) Pack(buf []byte, order binary.ByteOrder) ([]byte, error) {
+	// Get type tail. It is the last byte of the symbol
+	typeTail := ToSymbol(m.Type).MarshalBytes()
+
+	b := bytes.NewBuffer(buf)
+	// Write the type tail
+	if _, err := b.Write(typeTail[3:4]); err != nil {
+		return nil, err
+	}
+
+	// Marshal the struct into JSON
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+
+	// Write the JSON data
+	if _, err := b.Write(data); err != nil {
+		return nil, err
+	}
+
+	// Write the null terminator
+	if err := b.WriteByte(0); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+type Envelope struct {
+	value interface{} `restruct:"-"`
+	data  []byte
+}
+
+func NewEnvelope(value interface{}) (e *Envelope, err error) {
+	var data []byte
+	type packer interface { // does not require SizeOf
+		Pack([]byte, binary.ByteOrder) ([]byte, error)
+	}
+
+	switch p := value.(type) {
+	case packer:
+		data, err = p.Pack(nil, binary.LittleEndian)
+	default:
+		data, err = restruct.Pack(binary.LittleEndian, value)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &Envelope{
+		value: value,
+		data:  data,
+	}, nil
 }

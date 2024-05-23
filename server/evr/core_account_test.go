@@ -37,7 +37,7 @@ func TestGUID_UnmarshalBytes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.g.UnmarshalBytes(tt.b)
+			err := tt.g.UnmarshalBinary(tt.b)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GUID.UnmarshalBytes() error = %v, wantErr %v", err, tt.wantErr)
 				return
