@@ -25,13 +25,13 @@ func (m LobbyPlayerSessionsRequest) Symbol() Symbol {
 	return SymbolOf(&m)
 }
 
-func (m *LobbyPlayerSessionsRequest) Stream(s *EasyStream) error {
+func (m *LobbyPlayerSessionsRequest) Stream(s *Stream) error {
 	playerCount := uint64(len(m.PlayerEvrIDs))
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.LoginSessionID) },
+		func() error { return s.StreamGUID(&m.LoginSessionID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountId) },
-		func() error { return s.StreamGuid(m.MatchID) },
+		func() error { return s.StreamGUID(&m.MatchID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Platform) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &playerCount) },
 		func() error {

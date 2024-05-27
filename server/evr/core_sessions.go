@@ -11,7 +11,7 @@ type LoginSession struct {
 	Session   uuid.UUID `json:"session"`
 }
 
-func (m *LoginSession) Stream(s *EasyStream) error {
+func (m *LoginSession) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.AccountId) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Session) },
@@ -23,7 +23,7 @@ type MatchingSession struct {
 	Session   uint64 `json:"session"`
 }
 
-func (m *MatchingSession) Stream(s *EasyStream) error {
+func (m *MatchingSession) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.AccountId) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Session) },
@@ -38,7 +38,7 @@ func (m *SessionUuid) Equals(other *SessionUuid) bool {
 	return m.UUID == other.UUID
 }
 
-func (m *SessionUuid) Stream(s *EasyStream) error {
+func (m *SessionUuid) Stream(s *Stream) error {
 	bytes, err := m.MarshalBinary()
 	if err != nil {
 		return err

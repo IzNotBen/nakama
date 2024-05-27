@@ -33,10 +33,10 @@ func NewBroadcasterRegistrationSuccess(serverId uint64, externalAddr net.IP) *Br
 	}
 }
 
-func (m *BroadcasterRegistrationSuccess) Stream(s *EasyStream) error {
+func (m *BroadcasterRegistrationSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ServerId) },
-		func() error { return s.StreamIpAddress(&m.ExternalAddress) },
+		func() error { return s.StreamIPAddress(&m.ExternalAddress) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 	})
 }

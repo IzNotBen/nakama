@@ -28,7 +28,7 @@ func (m LoginFailure) String() string {
 		m.Token(), m.UserId.Token(), m.StatusCode, m.ErrorMessage)
 }
 
-func (m *LoginFailure) Stream(s *EasyStream) error {
+func (m *LoginFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.UserId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.UserId.AccountId) },

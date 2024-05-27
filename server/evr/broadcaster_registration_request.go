@@ -33,11 +33,11 @@ func NewBroadcasterRegistrationRequest(serverId uint64, internalAddress net.IP, 
 	}
 }
 
-func (m *BroadcasterRegistrationRequest) Stream(s *EasyStream) error {
+func (m *BroadcasterRegistrationRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ServerId) },
-		func() error { return s.StreamIpAddress(&m.InternalIP) },
+		func() error { return s.StreamIPAddress(&m.InternalIP) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Port) },
 		func() error {
 			pad10 := make([]byte, 10) // Pad to 16 bytes

@@ -25,13 +25,13 @@ func NewBroadcasterPlayersAccept(playerSessions []GUID) *BroadcasterPlayersAccep
 	}
 }
 
-func (m *BroadcasterPlayersAccept) Stream(s *EasyStream) error {
+func (m *BroadcasterPlayersAccept) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error {
 			if s.Mode == DecodeMode {
 				m.PlayerSessions = make([]GUID, s.Len()/16)
 			}
-			return s.StreamGuids(m.PlayerSessions)
+			return s.StreamGUIDs(m.PlayerSessions)
 		},
 	})
 }

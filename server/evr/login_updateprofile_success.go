@@ -20,7 +20,7 @@ func (lr *UpdateProfileSuccess) String() string {
 	return fmt.Sprintf("%s(user_id=%s)", lr.Token(), lr.UserId.String())
 }
 
-func (m *UpdateProfileSuccess) Stream(s *EasyStream) error {
+func (m *UpdateProfileSuccess) Stream(s *Stream) error {
 	return s.StreamStruct(&m.UserId)
 }
 func NewSNSUpdateProfileSuccess(userId *EvrId) *UpdateProfileSuccess {

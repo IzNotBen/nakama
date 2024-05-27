@@ -23,7 +23,7 @@ func (lr *UpdateProfileFailure) String() string {
 	return fmt.Sprintf("%s(user_id=%s, status_code=%d, msg='%s')", lr.Token(), lr.EvrId.String(), lr.statusCode, lr.Message)
 }
 
-func (m *UpdateProfileFailure) Stream(s *EasyStream) error {
+func (m *UpdateProfileFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.statusCode) },

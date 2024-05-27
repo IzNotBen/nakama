@@ -19,7 +19,7 @@ type EvrId struct {
 
 func (e EvrId) MarshalText() ([]byte, error) {
 	if e.PlatformCode == 0 && e.AccountId == 0 {
-		return []byte{}, nil
+		return nil, nil
 	}
 	return []byte(e.Token()), nil
 }
@@ -29,7 +29,7 @@ func (e *EvrId) UnmarshalText(b []byte) error {
 	if s == "" {
 		*e = EvrId{}
 	}
-	parsed, err := ParseEvrId(s)
+	parsed, err := ParseEvrID(s)
 	if err != nil {
 		return err
 	}
@@ -37,198 +37,128 @@ func (e *EvrId) UnmarshalText(b []byte) error {
 	return nil
 }
 
-func (xpi EvrId) Valid() bool {
-	return xpi.PlatformCode > STM && xpi.PlatformCode < TEN && xpi.AccountId > 0
+func (e EvrId) MarshalJSON() ([]byte, error) {
+	if e.PlatformCode == 0 && e.AccountId == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(fmt.Sprintf(`"%s"`, e.Token())), nil
 }
 
-func (xpi EvrId) Nil() bool {
-	return xpi.PlatformCode == 0 && xpi.AccountId == 0
+func (e EvrId) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 16)
+	binary.LittleEndian.PutUint64(buf, uint64(e.PlatformCode))
+	binary.LittleEndian.PutUint64(buf[8:], e.AccountId)
+	return buf, nil
 }
 
-func (xpi EvrId) NotNil() bool {
-	return xpi.PlatformCode != 0 && xpi.AccountId != 0
+func (e *EvrId) UnmarshalBinary(data []byte) error {
+	if len(data) != 16 {
+		return fmt.Errorf("invalid data length: %d", len(data))
+	}
+	e.PlatformCode = PlatformCode(binary.LittleEndian.Uint64(data))
+	e.AccountId = binary.LittleEndian.Uint64(data[8:])
+	return nil
 }
 
-func (xpi EvrId) UUID() uuid.UUID {
-	if xpi.PlatformCode == 0 || xpi.AccountId == 0 {
+func (e EvrId) Valid() bool {
+	return e.AccountId > 0 && e.PlatformCode > 0 && int(e.PlatformCode) < len(platforms)
+}
+
+func (e EvrId) Nil() bool {
+	return e.PlatformCode == 0 && e.AccountId == 0
+}
+
+func (e EvrId) NotNil() bool {
+	return e.PlatformCode != 0 && e.AccountId != 0
+}
+
+func (e EvrId) UUID() uuid.UUID {
+	if e.PlatformCode == 0 || e.AccountId == 0 {
 		return uuid.Nil
 	}
-	return uuid.NewV5(uuid.Nil, xpi.Token())
+	return uuid.NewV5(uuid.Nil, e.Token())
 }
 
 // Parse parses a string into a given platform identifier.
-func ParseEvrId(s string) (*EvrId, error) {
-	// Obtain the position of the last dash.
+func ParseEvrID(s string) (*EvrId, error) {
+	// The platform code might have a hyphen in it, so find the last hyphen.
 	dashIndex := strings.LastIndex(s, "-")
 	if dashIndex < 0 {
 		return nil, fmt.Errorf("invalid format: %s", s)
 	}
 
-	// Split it there
-	platformCodeStr := s[:dashIndex]
-	accountIdStr := s[dashIndex+1:]
+	platformCode := PlatformCode(0).Parse(s[:dashIndex])
 
-	// Determine the platform code.
-	platformCode := PlatformCode(0).Parse(platformCodeStr)
-
-	// Try to parse the account identifier
-	accountId, err := strconv.ParseUint(accountIdStr, 10, 64)
+	accountID, err := strconv.ParseUint(s[dashIndex+1:], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse account identifier: %v", err)
 	}
 
-	// Create the identifier
-	platformId := &EvrId{PlatformCode: platformCode, AccountId: accountId}
+	platformId := &EvrId{PlatformCode: platformCode, AccountId: accountID}
 	return platformId, nil
 }
 
-func (xpi EvrId) String() string {
-	return xpi.Token()
+func (e EvrId) String() string {
+	return e.Token()
 }
 
-func (xpi EvrId) Token() string {
-	return fmt.Sprintf("%s-%d", xpi.PlatformCode.String(), xpi.AccountId)
+func (e EvrId) Token() string {
+	return fmt.Sprintf("%s-%d", e.PlatformCode.String(), e.AccountId)
 }
 
-func (xpi EvrId) Equals(other EvrId) bool {
-	return xpi.PlatformCode == other.PlatformCode && xpi.AccountId == other.AccountId
+func (e EvrId) Equals(other EvrId) bool {
+	return e.PlatformCode == other.PlatformCode && e.AccountId == other.AccountId
 }
 
-func (xpi EvrId) IsNil() bool {
-	return xpi.PlatformCode == 0 && xpi.AccountId == 0
+func (e EvrId) IsNil() bool {
+	return e.PlatformCode == 0 && e.AccountId == 0
 }
 
-func (xpi EvrId) IsNotNil() bool {
-	return xpi.PlatformCode != 0 && xpi.AccountId != 0
+func (e EvrId) IsNotNil() bool {
+	return e.PlatformCode != 0 && e.AccountId != 0
 }
 
-func (xpi *EvrId) Stream(s *EasyStream) error {
+func (e *EvrId) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &xpi.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &xpi.AccountId) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &e.PlatformCode) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &e.AccountId) },
 	})
 }
 
-func NewEchoUserId(platformCode PlatformCode, accountId uint64) *EvrId {
-	return &EvrId{PlatformCode: platformCode, AccountId: accountId}
+// The indexes of these platforms are used in the EvrId struct.
+var platforms = []string{
+	"STM",     // Steam
+	"PSN",     // Playstation
+	"XBX",     // Xbox
+	"OVR-ORG", // Oculus VR user
+	"OVR",     // Oculus VR
+	"BOT",     // Bot/AI
+	"DMO",     // Demo (no ovr)
+	"TEN",     // Tencent
 }
-
-const (
-	STM     PlatformCode = iota // Steam
-	PSN                         // Playstation
-	XBX                         // Xbox
-	OVR_ORG                     // Oculus VR user
-	OVR                         // Oculus VR
-	BOT                         // Bot/AI
-	DMO                         // Demo (no ovr)
-	TEN                         // Tencent
-)
 
 type PlatformCode uint16
 
-func (xpi PlatformCode) Symbol() Symbol {
-	return ToSymbol(strings.Replace(xpi.Abbrevation(), "_", "-", -1))
+func (c PlatformCode) Symbol() Symbol {
+	// OVR_ORG is a special case, and must be converted to OVR-ORG.
+	return ToSymbol(c.String())
 }
 
 // GetPrefix obtains a platform prefix string for a given PlatformCode.
-func (code PlatformCode) GetPrefix() string {
-	// Try to obtain a name for this platform code.
-	name := code.String()
-
-	// If we could obtain one, the prefix should just be the same as the name, but with underscores represented as dashes.
-	if name != "" {
-		return name
+func (c PlatformCode) String() string {
+	if int(c) < len(platforms) {
+		return platforms[c]
 	}
-
-	// An unknown/invalid platform is denoted with the value returned below.
-	return "???"
-}
-
-// GetDisplayName obtains a display name for a given PlatformCode.
-func (code PlatformCode) GetDisplayName() string {
-	// Switch on the provided platform code and return a display name.
-	switch code {
-	case STM:
-		return "Steam"
-	case PSN:
-		return "Playstation"
-	case XBX:
-		return "Xbox"
-	case OVR_ORG:
-		return "Oculus VR (ORG)"
-	case OVR:
-		return "Oculus VR"
-	case BOT:
-		return "Bot"
-	case DMO:
-		return "Demo"
-	case TEN:
-		return "Tencent" // TODO: Verify, this is only suspected to be the target of "TEN".
-	default:
-		return "Unknown"
-	}
+	return "UNK"
 }
 
 // Parse parses a string generated from PlatformCode's String() method back into a PlatformCode.
-func (code PlatformCode) Parse(s string) PlatformCode {
+func (c PlatformCode) Parse(s string) PlatformCode {
 	// Convert any underscores in the string to dashes.
-	s = strings.ReplaceAll(s, "-", "_")
-
-	// Get the enum option to represent this.
-	if result, ok := platformCodeFromString(s); ok {
-		return result
+	for i, platform := range platforms {
+		if platform == s {
+			return PlatformCode(i)
+		}
 	}
 	return 0
-}
-
-// platformCodeToString converts a PlatformCode to its string representation.
-func (code PlatformCode) String() string {
-	return code.Abbrevation()
-}
-
-func (code PlatformCode) Abbrevation() string {
-	switch code {
-	case STM:
-		return "STM"
-	case PSN:
-		return "PSN"
-	case XBX:
-		return "XBX"
-	case OVR_ORG:
-		return "OVR_ORG"
-	case OVR:
-		return "OVR"
-	case BOT:
-		return "BOT"
-	case DMO:
-		return "DMO"
-	case TEN:
-		return "TEN" // TODO: Verify, this is only suspected to be the target of "TEN".
-	default:
-		return "XPI" + strconv.Itoa(int(code))
-	}
-}
-
-// platformCodeFromString converts a string to its PlatformCode representation.
-func platformCodeFromString(s string) (PlatformCode, bool) {
-	switch s {
-	case "STM":
-		return STM, true
-	case "PSN":
-		return PSN, true
-	case "XBX":
-		return XBX, true
-	case "OVR_ORG":
-		return OVR_ORG, true
-	case "OVR":
-		return OVR, true
-	case "BOT":
-		return BOT, true
-	case "DMO":
-		return DMO, true
-	case "TEN":
-		return TEN, true
-	default:
-		return 0, false
-	}
 }

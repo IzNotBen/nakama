@@ -21,7 +21,7 @@ func (m *UserServerProfileUpdateSuccess) Symbol() Symbol {
 func (lr *UserServerProfileUpdateSuccess) String() string {
 	return fmt.Sprintf("%s(user_id=%s)", lr.Token(), lr.EvrId.String())
 }
-func (m *UserServerProfileUpdateSuccess) Stream(s *EasyStream) error {
+func (m *UserServerProfileUpdateSuccess) Stream(s *Stream) error {
 	return s.StreamStruct(&m.EvrId)
 }
 func NewUserServerProfileUpdateSuccess(userId EvrId) *UserServerProfileUpdateSuccess {

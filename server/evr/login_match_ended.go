@@ -16,7 +16,7 @@ func (m *MatchEnded) Symbol() Symbol {
 	return SymbolOf(m)
 }
 
-func (m *MatchEnded) Stream(s *EasyStream) error {
+func (m *MatchEnded) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return nil },
 	})

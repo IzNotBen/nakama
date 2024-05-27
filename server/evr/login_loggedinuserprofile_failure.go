@@ -25,7 +25,7 @@ func (m *LoggedInUserProfileFailure) String() string {
 	return fmt.Sprintf("%s(user_id=%v, status=%v, msg=\"%s\")", m.Token(), m.EvrId, http.StatusText(int(m.StatusCode)), m.ErrorMessage)
 }
 
-func (m *LoggedInUserProfileFailure) Stream(s *EasyStream) error {
+func (m *LoggedInUserProfileFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },

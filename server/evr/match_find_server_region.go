@@ -33,12 +33,12 @@ func NewFindServerRegionInfo(unk0, unk1, unk2 uint16, regionInfo map[string]inte
 	}
 }
 
-func (m *FindServerRegionInfo) Stream(s *EasyStream) error {
+func (m *FindServerRegionInfo) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk2) },
-		func() error { return s.StreamJson(&m.RegionInfo, false, NoCompression) },
+		func() error { return s.StreamJSON(&m.RegionInfo, false, NoCompression) },
 	})
 }
 

@@ -20,11 +20,11 @@ func (m LoggedInUserProfileSuccess) Symbol() Symbol {
 	return ToSymbol(m.Token())
 }
 
-func (m *LoggedInUserProfileSuccess) Stream(s *EasyStream) error {
+func (m *LoggedInUserProfileSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.UserId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.UserId.AccountId) },
-		func() error { return s.StreamJson(&m.Payload, true, ZstdCompression) },
+		func() error { return s.StreamJSON(&m.Payload, true, ZstdCompression) },
 	})
 }
 func (r LoggedInUserProfileSuccess) String() string {

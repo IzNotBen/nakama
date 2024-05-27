@@ -29,7 +29,7 @@ func NewERGameServerChallengeResponse(signedPayload []byte) *GameServerChallenge
 		SignedPayload: signedPayload,
 	}
 }
-func (m *GameServerChallengeResponse) Stream(s *EasyStream) error {
+func (m *GameServerChallengeResponse) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error {
 			if s.Mode == DecodeMode {

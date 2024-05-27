@@ -44,7 +44,7 @@ func NewBroadcasterPlayersRejected(errorCode PlayerRejectionReason, playerSessio
 }
 
 // Stream encodes or decodes the GameServerPlayersRejected message.
-func (m *BroadcasterPlayersRejected) Stream(s *EasyStream) error {
+func (m *BroadcasterPlayersRejected) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error {
 			errorCode := byte(m.ErrorCode)
@@ -57,7 +57,7 @@ func (m *BroadcasterPlayersRejected) Stream(s *EasyStream) error {
 				m.PlayerSessions = make([]GUID, endpointCount)
 			}
 			for i := 0; i < len(m.PlayerSessions); i++ {
-				if err := s.StreamGuid(m.PlayerSessions[i]); err != nil {
+				if err := s.StreamGUID(&m.PlayerSessions[i]); err != nil {
 					return err
 				}
 			}

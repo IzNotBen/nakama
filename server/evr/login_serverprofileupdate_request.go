@@ -21,10 +21,10 @@ func (m UserServerProfileUpdateRequest) String() string {
 	return m.Token()
 }
 
-func (m *UserServerProfileUpdateRequest) Stream(s *EasyStream) error {
+func (m *UserServerProfileUpdateRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID) },
-		func() error { return s.StreamJson(&m.Payload, true, NoCompression) },
+		func() error { return s.StreamJSON(&m.Payload, true, NoCompression) },
 	})
 }
 

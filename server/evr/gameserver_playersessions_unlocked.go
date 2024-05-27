@@ -23,7 +23,7 @@ func (m *BroadcasterPlayerSessionsUnlocked) String() string {
 	)
 }
 
-func (m *BroadcasterPlayerSessionsUnlocked) Stream(s *EasyStream) error {
+func (m *BroadcasterPlayerSessionsUnlocked) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamByte(&m.Unused) },
 	})

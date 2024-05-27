@@ -36,7 +36,7 @@ func NewLobbyPingResponse() *LobbyPingResponse {
 		Results: []EndpointPingResult{},
 	}
 }
-func (m *LobbyPingResponse) Stream(s *EasyStream) error {
+func (m *LobbyPingResponse) Stream(s *Stream) error {
 	rLength := uint64(len(m.Results))
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &rLength) },
@@ -77,10 +77,10 @@ func (m EndpointPingResult) RTT() time.Duration {
 }
 
 // Stream streams the EndpointPingResult data in/out based on the streaming mode set.
-func (r *EndpointPingResult) Stream(s *EasyStream) error {
+func (r *EndpointPingResult) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamIpAddress(&r.InternalIP) },
-		func() error { return s.StreamIpAddress(&r.ExternalIP) },
+		func() error { return s.StreamIPAddress(&r.InternalIP) },
+		func() error { return s.StreamIPAddress(&r.ExternalIP) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &r.PingMilliseconds) },
 	})
 }

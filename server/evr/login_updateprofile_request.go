@@ -23,11 +23,11 @@ func (lr *UpdateClientProfile) String() string {
 	return fmt.Sprintf("UpdateProfile(session=%s, evr_id=%s)", lr.SessionID.String(), lr.EvrID.String())
 }
 
-func (m *UpdateClientProfile) Stream(s *EasyStream) error {
+func (m *UpdateClientProfile) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.SessionID) },
+		func() error { return s.StreamGUID(&m.SessionID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountId) },
-		func() error { return s.StreamJson(&m.Profile, true, NoCompression) },
+		func() error { return s.StreamJSON(&m.Profile, true, NoCompression) },
 	})
 }

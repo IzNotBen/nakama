@@ -24,9 +24,9 @@ func NewBroadcasterRemovePlayer(sid GUID) *BroadcasterPlayerRemoved {
 	}
 }
 
-func (m *BroadcasterPlayerRemoved) Stream(s *EasyStream) error {
+func (m *BroadcasterPlayerRemoved) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.PlayerSession) },
+		func() error { return s.StreamGUID(&m.PlayerSession) },
 	})
 }
 func (m *BroadcasterPlayerRemoved) String() string {

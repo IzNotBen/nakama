@@ -104,7 +104,7 @@ func (s *SessionSettings) MarshalJSON() ([]byte, error) {
 		Mode  int64  `json:"gametype"`
 		Level int64  `json:"level,omitempty"`
 	}
-	settings.AppID = strconv.FormatInt(s.AppID, 64)
+	settings.AppID = strconv.FormatInt(s.AppID, 10)
 	settings.Mode = int64(s.Mode)
 
 	if s.Level != LevelUnspecified {
@@ -123,7 +123,7 @@ func (s *SessionSettings) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return err
 	}
-	s.AppID, _ = strconv.ParseInt(settings.AppID, 64, 64)
+	s.AppID, _ = strconv.ParseInt(settings.AppID, 10, 64)
 	s.Mode = ToSymbol(settings.Mode)
 
 	if settings.Level == 0 {
@@ -214,7 +214,7 @@ func (l LobbyType) String() string {
 }
 
 type (
-	LobbyType byte
+	LobbyType uint32
 )
 
 const (

@@ -57,7 +57,6 @@ func generateSymbolSeed() [0x100]uint64 {
 var symbolSeed [0x100]uint64 = generateSymbolSeed()
 
 var CoreSymbols = map[uint64]SymbolToken{
-	0x0000000000000000: "",             // Default/empty
 	0xc8c33e482f601dbe: "uscn",         // US Central North (Chicago)
 	0xf1e60114d33c122a: "us-central-2", // US Central South (Texas)
 	0xf1e60114d33c122b: "us-central-3",

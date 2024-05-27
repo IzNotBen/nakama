@@ -22,8 +22,8 @@ func (m BroadcasterSessionEnded) String() string {
 	return fmt.Sprintf("BroadcasterSessionEnded(unused=%d)", m.Unused)
 }
 
-func (m *BroadcasterSessionEnded) Stream(s *EasyStream) error {
+func (m *BroadcasterSessionEnded) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamByte(&m.Unused) },
+		func() error { return s.Skip(1) },
 	})
 }

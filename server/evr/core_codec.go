@@ -13,7 +13,7 @@ var (
 	MessageMarker     = []byte{0xf6, 0x40, 0xbb, 0x78, 0xa2, 0xe7, 0x8c, 0xbb}
 	MaxPacketLength   = 1024 * 1024 * 10 // 10MB
 	MaxMessageLength  = 0x8000           // 32KB
-	ErrInvalidPacket  = errors.New("invalid packet")
+	ErrInvalidPacket  = errors.New("invalid packet, no marker found")
 	ErrSymbolNotFound = errors.New("symbol not found")
 	ErrParseError     = errors.New("parse error")
 	codec             = NewCodec(nil)
@@ -138,7 +138,7 @@ func ToSymbol(v any) Symbol {
 
 // Message is a Evr message that can be sent over the network.
 type Message interface {
-	Stream(s *EasyStream) error
+	Stream(s *Stream) error
 }
 
 type Codec struct {
@@ -250,9 +250,9 @@ func (p *Codec) FromSymbol(symbol Symbol) (any, error) {
 	return typ, nil
 }
 
-func (p *Codec) depacketize(packet []byte) (chunks [][]byte) {
+func (p *Codec) depacketize(packet []byte) (chunks [][]byte, err error) {
 	if !bytes.HasPrefix(packet, MessageMarker) {
-		return nil
+		return nil, ErrInvalidPacket
 	}
 	chunks = bytes.Split(packet, MessageMarker)
 	for i, chunk := range chunks {
@@ -263,14 +263,15 @@ func (p *Codec) depacketize(packet []byte) (chunks [][]byte) {
 			}
 		}
 	}
-	return chunks
+	return chunks, nil
 }
 
+// unwrap parses the message structure. It returns the symbol, data, and an error if the data length is invalid.
 func (p *Codec) unwrap(chunk []byte) (symbol uint64, data []byte, err error) {
 	buf := bytes.NewBuffer(chunk)
-	// Verify packet length.
+	// Verify data length.
 	if buf.Len() < 16 {
-		return 0, nil, fmt.Errorf("packet too short: %d bytes", buf.Len())
+		return 0, nil, fmt.Errorf("data too short: %d bytes", buf.Len())
 	}
 	// Read the message type
 	sym := dUint64(buf.Next(8))
@@ -278,20 +279,28 @@ func (p *Codec) unwrap(chunk []byte) (symbol uint64, data []byte, err error) {
 	l := int(dUint64(buf.Next(8)))
 	// Verify the message data can be read from the rest of the packet.
 	if buf.Len() != l {
-		return 0, nil, fmt.Errorf("truncated packet (expected %d bytes, got %d)", l, buf.Len())
+		return 0, nil, fmt.Errorf("truncated data (expected %d bytes, got %d)", l, buf.Len())
 	}
 	// Read the payload.
 	return sym, buf.Next(l), nil
 }
 
+// decode unmarshals the message data into the provided message.
 func (p *Codec) decode(data []byte, message Message) (err error) {
-	return message.Stream(NewEasyStream(DecodeMode, data))
+	return message.Stream(NewStreamReader(data))
 }
 
-func (p *Codec) encode(data []byte, message Message) (symbol uint64, err error) {
-	return uint64(SymbolOf(message)), message.Stream(NewEasyStream(EncodeMode, data))
+// encode returns the message type and the encoded message data.
+func (p *Codec) encode(message Message) (symbol uint64, data []byte, err error) {
+	symbol = uint64(SymbolOf(message))
+	stream := NewStreamBuffer()
+	if err := message.Stream(stream); err != nil {
+		return 0, nil, err
+	}
+	return symbol, stream.Bytes(), nil
 }
 
+// wrap adds the symbol and data length to the message.
 func (p *Codec) wrap(symbol uint64, data []byte) (chunk []byte, err error) {
 	// Write the Header (Marker + Symbol + Data Length)
 
@@ -302,6 +311,7 @@ func (p *Codec) wrap(symbol uint64, data []byte) (chunk []byte, err error) {
 	return chunk, nil
 }
 
+// packetize adds message markers before each message.
 func (p *Codec) packetize(chunks [][]byte) (packet []byte) {
 	return append(MessageMarker, bytes.Join(chunks, MessageMarker)...)
 }
@@ -311,28 +321,29 @@ func (p *Codec) Wrap(symbol Symbol, data []byte) (chunk []byte, err error) {
 	return p.wrap(uint64(symbol), data)
 }
 
+// Packetize returns the wire-format encoding of multiple (non-zero-length) messages; stripping any existing markers.
 func (p *Codec) Packetize(chunks ...[]byte) (packet []byte) {
-	// Skip empty and remove existing markers
 	for i, chunk := range chunks {
 		if len(chunk) == 0 {
+			// Skip empty
 			chunks = append(chunks[:i], chunks[i+1:]...)
-		}
-		if bytes.HasPrefix(chunk, MessageMarker) {
+		} else if bytes.HasPrefix(chunk, MessageMarker) {
+			// remove existing markers
 			chunks[i] = chunk[8:]
 		}
+	}
+	if len(chunks) == 0 {
+		return nil
 	}
 	return p.packetize(chunks)
 }
 
 // Marshal returns the wire-format encoding of multiple messages.
 func (p *Codec) Marshal(messages ...Message) (packet []byte, errs error) {
-	var err error
-	var symbol uint64
 	chunks := make([][]byte, 0, len(messages))
 
 	for _, m := range messages {
-		data := make([]byte, 0)
-		symbol, err = p.encode(data, m)
+		symbol, data, err := p.encode(m)
 		if err != nil {
 			errs = errors.Join(err, errs)
 			continue
@@ -352,14 +363,19 @@ func (p *Codec) Marshal(messages ...Message) (packet []byte, errs error) {
 
 func (p *Codec) Unmarshal(data []byte) (messages []Message, err error) {
 	var errs error
-	for _, chunk := range p.depacketize(data) {
+	chunks, err := p.depacketize(data)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, chunk := range chunks {
 		if len(chunk) == 0 {
 			// Skip empty messages.
 			continue
 		}
 
 		// Parse the message.
-		symbol, data, err := p.unwrap(data)
+		symbol, data, err := p.unwrap(chunk)
 		if err != nil {
 			errs = errors.Join(err, errs)
 			continue
@@ -379,7 +395,7 @@ func (p *Codec) Unmarshal(data []byte) (messages []Message, err error) {
 		messages = append(messages, message)
 	}
 
-	return nil, errs
+	return messages, errs
 }
 
 // AppendUint64 appends the (little-endian) byte representation of v to b and returns the resulting slice.

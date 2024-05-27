@@ -35,7 +35,7 @@ func (m LobbyPingRequest) String() string {
 }
 
 // Stream streams the message data in/out based on the streaming mode set.
-func (m *LobbyPingRequest) Stream(s *EasyStream) error {
+func (m *LobbyPingRequest) Stream(s *Stream) error {
 	RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.BigEndian, &m.Unk0) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
@@ -177,10 +177,10 @@ func EndpointFromString(s string) Endpoint {
 	}
 }
 
-func (e *Endpoint) Stream(s *EasyStream) error {
+func (e *Endpoint) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamIpAddress(&e.InternalIP) },
-		func() error { return s.StreamIpAddress(&e.ExternalIP) },
+		func() error { return s.StreamIPAddress(&e.InternalIP) },
+		func() error { return s.StreamIPAddress(&e.ExternalIP) },
 		func() error { return s.StreamNumber(binary.BigEndian, &e.Port) },
 	})
 }

@@ -22,9 +22,9 @@ func NewSNSLoginSettings(settings GameClientSettings) *LoginSettings {
 	}
 }
 
-func (m *LoginSettings) Stream(s *EasyStream) error {
+func (m *LoginSettings) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamJson(&m.LoginSettings, false, ZlibCompression) },
+		func() error { return s.StreamJSON(&m.LoginSettings, false, ZlibCompression) },
 	})
 }
 

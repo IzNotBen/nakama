@@ -86,7 +86,7 @@ func (m *LobbySessionFailurev1) String() string {
 func (m *LobbySessionFailurev1) Symbol() Symbol { return SymbolOf(m) }
 func (m *LobbySessionFailurev1) Token() string  { return "SNSLobbySessionFailurev1" }
 
-func (m *LobbySessionFailurev1) Stream(s *EasyStream) error {
+func (m *LobbySessionFailurev1) Stream(s *Stream) error {
 	return s.StreamNumber(binary.LittleEndian, &m.ErrorCode)
 }
 
@@ -99,9 +99,9 @@ func (m *LobbySessionFailurev2) String() string {
 	return fmt.Sprintf("LobbySessionFailurev2(channel_uuid=%s, error_code=%d)", m.ChannelUUID.String(), m.ErrorCode)
 }
 
-func (m *LobbySessionFailurev2) Stream(s *EasyStream) error {
+func (m *LobbySessionFailurev2) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.ChannelUUID) },
+		func() error { return s.StreamGUID(&m.ChannelUUID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ErrorCode) },
 	})
 }
@@ -120,10 +120,10 @@ func (m *LobbySessionFailurev3) String() string {
 	)
 }
 
-func (m *LobbySessionFailurev3) Stream(s *EasyStream) error {
+func (m *LobbySessionFailurev3) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameTypeSymbol) },
-		func() error { return s.StreamGuid(m.ChannelUUID) },
+		func() error { return s.StreamGUID(&m.ChannelUUID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ErrorCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 	})
@@ -144,10 +144,10 @@ func (m *LobbySessionFailurev4) String() string {
 	)
 }
 
-func (m *LobbySessionFailurev4) Stream(s *EasyStream) error {
+func (m *LobbySessionFailurev4) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameTypeSymbol) },
-		func() error { return s.StreamGuid(m.ChannelUUID) },
+		func() error { return s.StreamGUID(&m.ChannelUUID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.ErrorCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamString(&m.Message, 72) },

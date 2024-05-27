@@ -52,13 +52,13 @@ func (m LobbyJoinSessionRequest) Symbol() Symbol {
 	return 3387628926720258577
 }
 
-func (m *LobbyJoinSessionRequest) Stream(s *EasyStream) error {
+func (m *LobbyJoinSessionRequest) Stream(s *Stream) error {
 	flags := uint32(0)
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.MatchID) },
+		func() error { return s.StreamGUID(&m.MatchID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.VersionLock) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Platform) },
-		func() error { return s.StreamGuid(m.LoginSessionID) },
+		func() error { return s.StreamGUID(&m.LoginSessionID) },
 		func() error {
 			switch s.Mode {
 			case DecodeMode:
@@ -67,27 +67,32 @@ func (m *LobbyJoinSessionRequest) Stream(s *EasyStream) error {
 					return err
 				}
 
-				m.CrossPlayEnabled = flags&0x200 != 0
+				m.CrossPlayEnabled = flags&SessionFlag_EnableCrossPlay != 0
 
+				m.Entrants = make([]Entrant, flags&0xFF)
+
+				// Set all of the Roles to -1 (unspecified) by default
+				for i := range m.Entrants {
+					m.Entrants[i].Role = -1
+				}
 			case EncodeMode:
 				if m.CrossPlayEnabled {
-					flags |= 0x200
+					flags |= SessionFlag_EnableCrossPlay
 				}
 
 				flags = (flags & 0xFFFFFF00) | uint32(len(m.Entrants))
 
 				// TeamIndexes are only sent if there are entrants with team indexes > -1
 				for _, entrant := range m.Entrants {
-					if entrant.Alignment > -1 {
-						flags |= 0x100
+					if entrant.Role > -1 {
+						flags |= SessionFlag_TeamIndexes
 						break
 					}
 				}
 				return s.StreamNumber(binary.LittleEndian, &flags)
 			}
-			return nil
+			return s.Skip(4)
 		},
-		func() error { return s.Skip(4) },
 		func() error {
 
 			err := s.StreamNumber(binary.LittleEndian, &m.Flags)
@@ -102,39 +107,25 @@ func (m *LobbyJoinSessionRequest) Stream(s *EasyStream) error {
 			}
 			return nil
 		},
-		func() error { return s.StreamJson(&m.SessionSettings, true, NoCompression) },
+		func() error { return s.StreamJSON(&m.SessionSettings, true, NoCompression) },
 		func() error {
 			// Stream the entrants
-			if s.Mode == DecodeMode {
-				m.Entrants = make([]Entrant, flags&0xFF)
-			}
-
 			for i := range m.Entrants {
 				if err := s.StreamStruct(&m.Entrants[i].EvrID); err != nil {
 					return err
 				}
 			}
-
 			return nil
 		},
 		func() error {
 			// Stream the team indexes
-			if flags&0x100 != 0 {
-
+			if flags&SessionFlag_TeamIndexes != 0 {
 				for i := range m.Entrants {
-					if err := s.StreamNumber(binary.LittleEndian, &m.Entrants[i].Alignment); err != nil {
+					if err := s.StreamNumber(binary.LittleEndian, &m.Entrants[i].Role); err != nil {
 						return err
 					}
 				}
-
-			} else if s.Mode == DecodeMode {
-				// Set all the team indexes to -1 (any)
-				for i := range m.Entrants {
-					m.Entrants[i].Alignment = -1
-				}
-
 			}
-
 			return nil
 		},
 	})

@@ -32,11 +32,11 @@ func (configErrorInfo ConfigErrorInfo) Verify() bool {
 	return ValidateStruct(configErrorInfo) == nil
 }
 
-func (m *ConfigFailure) Stream(s *EasyStream) error {
+func (m *ConfigFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
-		func() error { return s.StreamJson(&m.ErrorInfo, true, NoCompression) },
+		func() error { return s.StreamJSON(&m.ErrorInfo, true, NoCompression) },
 	})
 }
 

@@ -56,9 +56,9 @@ func (r *ReconcileIAPResult) String() string {
 	return fmt.Sprintf("%s(user_id=%v, iap_data=%v)", r.Token(), r.EvrId, r.IAPData)
 }
 
-func (r *ReconcileIAPResult) Stream(s *EasyStream) error {
+func (r *ReconcileIAPResult) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamStruct(&r.EvrId) },
-		func() error { return s.StreamJson(&r.IAPData, true, NoCompression) },
+		func() error { return s.StreamJSON(&r.IAPData, true, NoCompression) },
 	})
 }

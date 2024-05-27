@@ -30,9 +30,9 @@ func (m LoginSuccess) String() string {
 		m.Token(), m.Session, m.EvrId.String())
 }
 
-func (m *LoginSuccess) Stream(s *EasyStream) error {
+func (m *LoginSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.Session) },
+		func() error { return s.StreamGUID(&m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
 	})

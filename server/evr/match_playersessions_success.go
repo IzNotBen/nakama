@@ -56,17 +56,17 @@ func (m *LobbyPlayerSessionsSuccessUnk1) Symbol() Symbol {
 	return SymbolOf(m)
 }
 
-func (m *LobbyPlayerSessionsSuccessUnk1) Stream(s *EasyStream) error {
+func (m *LobbyPlayerSessionsSuccessUnk1) Stream(s *Stream) error {
 	count := uint64(len(m.PlayerSessions))
 
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &count) },
-		func() error { return s.StreamGuid(m.MatchingSession) },
+		func() error { return s.StreamGUID(&m.MatchingSession) },
 		func() error {
 			if s.Mode == DecodeMode {
 				m.PlayerSessions = make([]GUID, s.Len()/16)
 			}
-			return s.StreamGuids(m.PlayerSessions)
+			return s.StreamGUIDs(m.PlayerSessions)
 		},
 	})
 }
@@ -89,11 +89,11 @@ func (m *LobbyPlayerSessionsSuccessv3) Symbol() Symbol {
 	return SymbolOf(m)
 }
 
-func (m *LobbyPlayerSessionsSuccessv3) Stream(s *EasyStream) error {
+func (m *LobbyPlayerSessionsSuccessv3) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamStruct(&m.EvrId) },
-		func() error { return s.StreamGuid(m.PlayerSession) },
+		func() error { return s.StreamGUID(&m.PlayerSession) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk2) },
@@ -117,11 +117,11 @@ func (m *LobbyPlayerSessionsSuccessv2) Symbol() Symbol {
 }
 
 // Stream streams the message data in/out based on the streaming mode set.
-func (m *LobbyPlayerSessionsSuccessv2) Stream(s *EasyStream) error {
+func (m *LobbyPlayerSessionsSuccessv2) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamStruct(&m.EvrId) },
-		func() error { return s.StreamGuid(m.PlayerSession) },
+		func() error { return s.StreamGUID(&m.PlayerSession) },
 	})
 }
 

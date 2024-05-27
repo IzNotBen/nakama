@@ -18,14 +18,14 @@ func NewBroadcasterPlayersAccepted(playerSessions ...GUID) *BroadcasterPlayersAc
 	return &BroadcasterPlayersAccepted{Unk0: 0, PlayerSessions: playerSessions}
 }
 
-func (m *BroadcasterPlayersAccepted) Stream(s *EasyStream) error {
+func (m *BroadcasterPlayersAccepted) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamByte(&m.Unk0) },
 		func() error {
 			if s.Mode == DecodeMode {
 				m.PlayerSessions = make([]GUID, s.Len()/16)
 			}
-			return s.StreamGuids(m.PlayerSessions)
+			return s.StreamGUIDs(m.PlayerSessions)
 		},
 	})
 }

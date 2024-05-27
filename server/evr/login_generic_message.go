@@ -32,9 +32,9 @@ func (m *GenericMessage) Symbol() Symbol {
 	return SymbolOf(m)
 }
 
-func (m *GenericMessage) Stream(s *EasyStream) error {
+func (m *GenericMessage) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.Session) },
+		func() error { return s.StreamGUID(&m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.AcctId) },
 		func() error { return s.StreamSymbol(&m.MessageType) },
 		func() error { return s.StreamStruct(&m.OtherEvrID) },
@@ -43,7 +43,7 @@ func (m *GenericMessage) Stream(s *EasyStream) error {
 			if m.MessageType == 0xb9ea35ff8448e615 {
 				return s.StreamNumber(binary.LittleEndian, &m.RoomID)
 			} else {
-				return s.StreamJson(&m.PartyData, true, ZstdCompression)
+				return s.StreamJSON(&m.PartyData, true, ZstdCompression)
 			}
 		},
 	})

@@ -31,14 +31,14 @@ func (m LoginRequestV1) GetLoginProfile() LoginProfileV1 {
 	return m.Profile
 }
 
-func (m *LoginRequestV1) Stream(s *EasyStream) error {
+func (m *LoginRequestV1) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.Session) },
+		func() error { return s.StreamGUID(&m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountId) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
 		func() error {
-			return s.StreamJson(&m.Profile, true, NoCompression)
+			return s.StreamJSON(&m.Profile, true, NoCompression)
 		},
 	})
 }

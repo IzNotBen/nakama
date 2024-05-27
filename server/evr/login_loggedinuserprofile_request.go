@@ -24,12 +24,12 @@ func (r LoggedInUserProfileRequest) String() string {
 	return fmt.Sprintf("LoggedInUserProfileRequest(session=%v, user_id=%v, profile_request=%v)", r.Session, r.EvrId, r.ProfileRequestData)
 }
 
-func (m *LoggedInUserProfileRequest) Stream(s *EasyStream) error {
+func (m *LoggedInUserProfileRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.Session) },
+		func() error { return s.StreamGUID(&m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
-		func() error { return s.StreamJson(&m.ProfileRequestData, true, NoCompression) },
+		func() error { return s.StreamJSON(&m.ProfileRequestData, true, NoCompression) },
 	})
 }
 

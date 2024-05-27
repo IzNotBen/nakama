@@ -26,7 +26,7 @@ func NewLobbyMatchmakerStatusRequest() *LobbyMatchmakerStatusRequest {
 }
 
 // Stream streams the message data in/out based on the streaming mode set.
-func (m *LobbyMatchmakerStatusRequest) Stream(s *EasyStream) error {
+func (m *LobbyMatchmakerStatusRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamByte(&m.Unk0) },
 	})

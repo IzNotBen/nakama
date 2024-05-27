@@ -48,15 +48,19 @@ func (g *GUID) UnmarshalJSON(data []byte) error {
 }
 
 func (g *GUID) UnmarshalBinary(b []byte) error {
+	if len(b) != 16 {
+		return fmt.Errorf("GUID must be 16 bytes long")
+	}
 	copy(g[:], b)
-	b[0], b[1], b[2], b[3] = b[3], b[2], b[1], b[0]
-	b[4], b[5] = b[5], b[4]
-	b[6], b[7] = b[7], b[6]
+	g[0], g[1], g[2], g[3] = g[3], g[2], g[1], g[0]
+	g[4], g[5] = g[5], g[4]
+	g[6], g[7] = g[7], g[6]
 	return nil
 }
 
 // MarshalBinary implements the encoding.BinaryMarshaler interface.
 func (g GUID) MarshalBinary() (b []byte, err error) {
+	b = make([]byte, 16)
 	copy(b, g[:])
 	b[0], b[1], b[2], b[3] = b[3], b[2], b[1], b[0]
 	b[4], b[5] = b[5], b[4]
@@ -69,7 +73,7 @@ func init() {
 	validate.RegisterValidation("restricted", func(fl validator.FieldLevel) bool { return true })
 	validate.RegisterValidation("blocked", forceFalse)
 	validate.RegisterValidation("evrid", func(fl validator.FieldLevel) bool {
-		evrId, err := ParseEvrId(fl.Field().String())
+		evrId, err := ParseEvrID(fl.Field().String())
 		if err != nil || evrId.Equals(EvrIdNil) {
 			return false
 		}
@@ -1205,7 +1209,6 @@ type ArenaUnlocks struct {
 	RWDTitle0019                bool `json:"rwd_title_0019,omitempty"`
 	StubMedal0018               bool `json:"rwd_medal_0018,omitempty" validate:"blocked"`
 	StubMedal0019               bool `json:"rwd_medal_0019,omitempty" validate:"blocked"`
-	StubMedal0026               bool `json:"rwd_medal_0026,omitempty" validate:"blocked"`
 	StubPattern0013             bool `json:"rwd_pattern_0013,omitempty" validate:"blocked"`
 	StubPattern0014             bool `json:"rwd_pattern_0014,omitempty" validate:"blocked"`
 	StubPattern0015             bool `json:"rwd_pattern_0015,omitempty" validate:"blocked"`

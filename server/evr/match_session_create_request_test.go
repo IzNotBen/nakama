@@ -1,17 +1,17 @@
 package evr
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/gofrs/uuid/v5"
-	"github.com/google/go-cmp/cmp"
 	"github.com/samber/lo"
 )
 
 func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 	var err error
 	codec := NewCodec(nil)
-	data, err := codec.wrap(uint64(SymbolOf(&LobbyCreateSessionRequest{})), []byte{
+	chunk, err := codec.wrap(uint64(SymbolOf(&LobbyCreateSessionRequest{})), []byte{
 		0x3a, 0xa0, 0x23, 0x12, 0xb2, 0xe7, 0x5f, 0x45,
 		0x0d, 0x91, 0x77, 0x8f, 0xd7, 0x01, 0x2f, 0xc6,
 		0x03, 0x8c, 0xdb, 0xf4, 0x65, 0x09, 0x99, 0x09,
@@ -37,13 +37,13 @@ func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
+	packet := codec.Packetize(chunk)
 	// Add the header to the payload
-	packet, err := codec.Unmarshal(data)
+	messages, err := codec.Unmarshal(packet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	message, ok := packet[0].(*LobbyCreateSessionRequest)
+	got, ok := messages[0].(*LobbyCreateSessionRequest)
 	if !ok {
 		t.Fatal("failed to cast")
 	}
@@ -57,17 +57,22 @@ func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 		Level:          6300205991959903307,
 		Platform:       14477050463639303416,
 		LoginSessionID: GUID(uuid.Must(uuid.FromString("320cedab-fb50-11ee-8e45-66d3ff8a653b"))),
-		Unk1:           1,
-		Unk2:           11,
+
+		Unk2: 11,
 		SessionSettings: SessionSettings{
 			AppID: 1369078409873402,
 			Mode:  691594351282457603,
 			Level: 0,
 		},
-		EvrId:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-		TeamIndex: 2,
+		Entrants: []Entrant{
+			{
+				EvrID: *lo.Must(ParseEvrID("OVR_ORG-3963667097037078")),
+				Role:  2,
+			},
+		},
 	}
-	if cmp.Equal(got, want) {
+
+	if reflect.DeepEqual(got, want) {
 		t.Errorf("\ngot  %s\nwant %s", got.String(), want.String())
 	}
 
@@ -79,7 +84,7 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 
 	// It's setting the server region to the same value as the level
 	codec := NewCodec(nil)
-	data, err := codec.wrap(uint64(SymbolOf(&LobbyCreateSessionRequest{})), []byte{
+	chunk, err := codec.wrap(uint64(SymbolOf(&LobbyCreateSessionRequest{})), []byte{
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		0x0d, 0x91, 0x77, 0x8f, 0xd7, 0x01, 0x2f, 0xc6,
 		0x03, 0x8c, 0xdb, 0xf4, 0x65, 0x09, 0x99, 0x09,
@@ -105,7 +110,7 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
+	data := codec.Packetize(chunk)
 	// Add the header to the payload
 	packet, err := codec.Unmarshal(data)
 	if err != nil {
@@ -124,17 +129,16 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 		Level:          6300205991959903307,
 		Platform:       14477050463639303416,
 		LoginSessionID: GUID(uuid.Must(uuid.FromString("320cedab-fb50-11ee-8e45-66d3ff8a653b"))),
-		Unk1:           1,
-		Unk2:           11,
+
+		Unk2: 11,
 		SessionSettings: SessionSettings{
 			AppID: 1369078409873402,
 			Mode:  691594351282457603,
 			Level: 0,
 		},
-		EvrId:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-		TeamIndex: 2,
 	}
-	if cmp.Equal(got, want) {
+
+	if reflect.DeepEqual(got, want) {
 		t.Errorf("\ngot  %s\nwant %s", got.String(), want.String())
 	}
 

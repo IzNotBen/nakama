@@ -19,7 +19,7 @@ func (m *BroadcasterSessionStarted) Symbol() Symbol {
 }
 
 // Stream streams the message data in/out based on the streaming mode set.
-func (m *BroadcasterSessionStarted) Stream(s *EasyStream) error {
+func (m *BroadcasterSessionStarted) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamByte(&m.Unused) },
 	})

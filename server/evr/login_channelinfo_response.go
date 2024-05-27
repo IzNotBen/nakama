@@ -24,8 +24,8 @@ type ChannelInfoResource struct {
 	Groups []ChannelGroup `json:"group" validate:"required,notempty"`
 }
 
-func (m *ChannelInfoResponse) Stream(s *EasyStream) error {
-	return s.StreamJson(&m.ChannelInfo, false, ZlibCompression)
+func (m *ChannelInfoResponse) Stream(s *Stream) error {
+	return s.StreamJSON(&m.ChannelInfo, false, ZlibCompression)
 }
 
 func (m *ChannelInfoResponse) String() string {

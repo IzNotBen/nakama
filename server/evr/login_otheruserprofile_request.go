@@ -19,10 +19,10 @@ func (m OtherUserProfileRequest) Symbol() Symbol {
 	return ToSymbol(m.Token())
 }
 
-func (m *OtherUserProfileRequest) Stream(s *EasyStream) error {
+func (m *OtherUserProfileRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamStruct(&m.EvrId) },
-		func() error { return s.StreamCompressedBytes(m.Data, true, NoCompression) },
+		func() error { return s.StreamCompressedBytes(&m.Data, true, NoCompression) },
 	})
 }
 

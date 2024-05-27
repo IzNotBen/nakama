@@ -38,31 +38,31 @@ var (
 	structValidate            = validator.New()
 )
 
-type EasyStream struct {
+type Stream struct {
 	r    *bytes.Reader
 	w    *bytes.Buffer
 	Mode StreamMode
 }
 
-func NewEasyStream(mode StreamMode, b []byte) *EasyStream {
-	s := &EasyStream{
-		Mode: mode,
+func NewStreamReader(b []byte) *Stream {
+	return &Stream{
+		Mode: DecodeMode,
+		r:    bytes.NewReader(b),
 	}
-	switch mode {
-	case DecodeMode:
-		s.r = bytes.NewReader(b)
-	case EncodeMode:
-		s.w = bytes.NewBuffer(b)
-	default:
-	}
-	return s
 }
 
-func (s *EasyStream) StreamSymbol(value *Symbol) error {
+func NewStreamBuffer() *Stream {
+	return &Stream{
+		Mode: EncodeMode,
+		w:    bytes.NewBuffer(nil),
+	}
+}
+
+func (s *Stream) StreamSymbol(value *Symbol) error {
 	return s.StreamNumber(binary.LittleEndian, value)
 }
 
-func (s *EasyStream) StreamNumber(order binary.ByteOrder, value any) error {
+func (s *Stream) StreamNumber(order binary.ByteOrder, value any) error {
 	switch s.Mode {
 	case DecodeMode:
 		return binary.Read(s.r, order, value)
@@ -73,7 +73,7 @@ func (s *EasyStream) StreamNumber(order binary.ByteOrder, value any) error {
 	}
 }
 
-func (s *EasyStream) StreamIpAddress(data *net.IP) error {
+func (s *Stream) StreamIPAddress(data *net.IP) error {
 	b := make([]byte, net.IPv4len)
 	copy(b, (*data).To4())
 	if err := s.StreamBytes(&b, net.IPv4len); err != nil {
@@ -83,7 +83,7 @@ func (s *EasyStream) StreamIpAddress(data *net.IP) error {
 	return nil
 }
 
-func (s *EasyStream) StreamByte(value *byte) error {
+func (s *Stream) StreamByte(value *byte) error {
 	var err error
 	switch s.Mode {
 	case DecodeMode:
@@ -101,7 +101,7 @@ func (s *EasyStream) StreamByte(value *byte) error {
 // If the length parameter is -1, it reads all available bytes from the stream.
 // If the mode is WriteMode, it writes the bytes from the provided data slice to the stream.
 // It returns an error if there is any issue with reading or writing the bytes.
-func (s *EasyStream) StreamBytes(dst *[]byte, l int) error {
+func (s *Stream) StreamBytes(dst *[]byte, l int) error {
 	var err error
 	switch s.Mode {
 	case DecodeMode:
@@ -121,7 +121,7 @@ func (s *EasyStream) StreamBytes(dst *[]byte, l int) error {
 	return err
 }
 
-func (s *EasyStream) StreamString(value *string, length int) error {
+func (s *Stream) StreamString(value *string, length int) error {
 	var err error
 
 	b := make([]byte, length)
@@ -142,7 +142,7 @@ func (s *EasyStream) StreamString(value *string, length int) error {
 	return err
 }
 
-func (s *EasyStream) StreamNullTerminatedString(str *string) error {
+func (s *Stream) StreamNullTerminatedString(str *string) error {
 	b := make([]byte, 0, len(*str))
 	switch s.Mode {
 	case DecodeMode:
@@ -166,15 +166,15 @@ func (s *EasyStream) StreamNullTerminatedString(str *string) error {
 	}
 }
 
-func (s *EasyStream) StreamStruct(obj Serializable) error {
+func (s *Stream) StreamStruct(obj Serializable) error {
 	return obj.Stream(s)
 }
 
 // Stream multiple GUIDs
-func (s *EasyStream) StreamGuids(guids []GUID) error {
+func (s *Stream) StreamGUIDs(guids []GUID) error {
 	var err error
 	for i := 0; i < len(guids); i++ {
-		if err = s.StreamGuid(guids[i]); err != nil {
+		if err = s.StreamGUID(&guids[i]); err != nil {
 			return err
 		}
 	}
@@ -182,8 +182,7 @@ func (s *EasyStream) StreamGuids(guids []GUID) error {
 }
 
 // Microsoft's GUID has some bytes re-ordered.
-func (s *EasyStream) StreamGuid(guid GUID) error {
-	id := guid
+func (s *Stream) StreamGUID(guid *GUID) error {
 	var err error
 	var b []byte
 
@@ -193,11 +192,11 @@ func (s *EasyStream) StreamGuid(guid GUID) error {
 		if err = s.StreamBytes(&b, 16); err != nil {
 			return err
 		}
-		if err = id.UnmarshalBinary(b); err != nil {
+		if err = guid.UnmarshalBinary(b); err != nil {
 			return err
 		}
 	case EncodeMode:
-		if b, err = id.MarshalBinary(); err != nil {
+		if b, err = guid.MarshalBinary(); err != nil {
 			return err
 		}
 		return s.StreamBytes(&b, 16)
@@ -207,7 +206,7 @@ func (s *EasyStream) StreamGuid(guid GUID) error {
 	return nil
 }
 
-func (s *EasyStream) StreamStringTable(entries *[]string) error {
+func (s *Stream) StreamStringTable(entries *[]string) error {
 	var err error
 	var strings []string
 	logCount := uint64(len(*entries))
@@ -257,7 +256,7 @@ func (s *EasyStream) StreamStringTable(entries *[]string) error {
 	return nil
 }
 
-func (s *EasyStream) Bytes() []byte {
+func (s *Stream) Bytes() []byte {
 	if s.Mode == DecodeMode {
 		b := make([]byte, s.r.Len())
 		s.r.Read(b)
@@ -266,14 +265,14 @@ func (s *EasyStream) Bytes() []byte {
 	return s.w.Bytes()
 }
 
-func (s *EasyStream) Len() int {
+func (s *Stream) Len() int {
 	if s.Mode == DecodeMode {
 		return s.r.Len()
 	}
 	return s.w.Len()
 }
 
-func (s *EasyStream) Position() int {
+func (s *Stream) Position() int {
 	if s.Mode == DecodeMode {
 		pos, _ := s.r.Seek(0, 1) // Current position
 		return int(pos)
@@ -281,7 +280,7 @@ func (s *EasyStream) Position() int {
 	return s.w.Len()
 }
 
-func (s *EasyStream) SetPosition(pos int) error {
+func (s *Stream) SetPosition(pos int) error {
 	if s.Mode == DecodeMode {
 		if _, err := s.r.Seek(int64(pos), 0); err != nil {
 			return errors.New("SetPosition failed: " + err.Error())
@@ -295,7 +294,7 @@ func (s *EasyStream) SetPosition(pos int) error {
 	return nil
 }
 
-func (s *EasyStream) Reset() {
+func (s *Stream) Reset() {
 	if s.Mode == DecodeMode {
 		s.r.Reset(s.Bytes())
 	} else {
@@ -303,16 +302,21 @@ func (s *EasyStream) Reset() {
 	}
 }
 
-func (s *EasyStream) Skip(count int) error {
+func (s *Stream) Skip(count int) error {
 	if s.Mode == DecodeMode {
 		_, err := s.r.Seek(int64(count), io.SeekCurrent)
 		return err
+	} else {
+		b := make([]byte, count)
+		if _, err := s.w.Write(b); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 type Serializable interface {
-	Stream(s *EasyStream) error
+	Stream(s *Stream) error
 }
 
 func RunErrorFunctions(funcs []func() error) error {
@@ -359,47 +363,19 @@ func ReadBytes(r io.ByteReader, dst *bytes.Buffer, isNullTerminated bool) error 
 	return nil
 }
 
-func (s *EasyStream) StreamJson(data interface{}, isNullTerminated bool, compressionMode CompressionMode) error {
-	var buf bytes.Buffer
+func (s *Stream) StreamJSON(data any, isNullTerminated bool, compressionMode CompressionMode) error {
 	var err error
 	switch s.Mode {
 	case DecodeMode:
-		switch compressionMode {
-		case NoCompression:
-			if err := ReadBytes(s.r, &buf, isNullTerminated); err != nil && err != io.EOF {
-				return fmt.Errorf("read bytes error: %w", err)
-			}
-		case ZlibCompression:
-			l64 := uint64(0)
-			if err = binary.Read(s.r, binary.LittleEndian, &l64); err != nil {
-				return fmt.Errorf("zlib length read error: %w", err)
-			}
-			r, err := zlib.NewReader(s.r)
-			if err != nil {
-				return err
-			}
-			io.Copy(&buf, r)
-			r.Close()
-		case ZstdCompression:
-			l32 := uint32(0)
-			if err = binary.Read(s.r, binary.LittleEndian, &l32); err != nil {
-				return fmt.Errorf("zstd length read error: %w", err)
-			}
-			r, err := zstd.NewReader(s.r)
-			if err != nil {
-				return err
-			}
-			io.Copy(&buf, r)
-			r.Close()
-		default:
-			return errInvalidCompressionMode
+		b := make([]byte, 0)
+		// Read the compressed bytes into data
+		err = s.StreamCompressedBytes(&b, isNullTerminated, compressionMode)
+		if err != nil {
+			return err
 		}
-		if isNullTerminated && buf.Len() > 0 && buf.Bytes()[buf.Len()-1] == 0x0 {
-			buf.Truncate(buf.Len() - 1)
-		}
-
-		if err = json.Unmarshal(buf.Bytes(), &data); err != nil {
-			return fmt.Errorf("unmarshal json error: %w: %s", err, buf.Bytes())
+		// Unmarshal the data into the provided interface
+		if err = json.Unmarshal(b, &data); err != nil {
+			return fmt.Errorf("unmarshal json error: %w: `%s`", err, data)
 		}
 		return nil
 	case EncodeMode:
@@ -410,43 +386,17 @@ func (s *EasyStream) StreamJson(data interface{}, isNullTerminated bool, compres
 		if isNullTerminated {
 			b = append(b, 0x0)
 		}
-		switch compressionMode {
-		case ZlibCompression:
-			if err := binary.Write(s.w, binary.LittleEndian, uint64(len(b))); err != nil {
-				return fmt.Errorf("write error: %w", err)
-			}
-			w := zlib.NewWriter(s.w)
-			if _, err = w.Write(b); err != nil {
-				return err
-			}
-			w.Close()
-		case ZstdCompression:
-			if err := binary.Write(s.w, binary.LittleEndian, uint32(len(b))); err != nil {
-				return fmt.Errorf("write error: %w", err)
-			}
-			w, err := zstd.NewWriter(s.w)
-			if err != nil {
-				return err
-			}
-			if _, err = w.Write(b); err != nil {
-				return err
-			}
-			w.Close()
-		case NoCompression:
-			if _, err := s.w.Write(b); err != nil {
-				return err
-			}
-		default:
-			return errInvalidCompressionMode
+		// Compress the bytes and write them to the stream
+		if err = s.StreamCompressedBytes(&b, isNullTerminated, compressionMode); err != nil {
+			return err
 		}
-
 	default:
 		return errors.New("StreamJson: invalid mode")
 	}
 	return nil
 }
 
-func (s *EasyStream) StreamCompressedBytes(data []byte, isNullTerminated bool, compressionMode CompressionMode) error {
+func (s *Stream) StreamCompressedBytes(data *[]byte, isNullTerminated bool, compressionMode CompressionMode) error {
 	buf := bytes.Buffer{}
 	var err error
 	switch s.Mode {
@@ -491,10 +441,11 @@ func (s *EasyStream) StreamCompressedBytes(data []byte, isNullTerminated bool, c
 		if isNullTerminated && len(b) > 0 && b[len(b)-1] == 0x0 {
 			b = b[:len(b)-1]
 		}
-		data = b
+		*data = b
+
 		return nil
 	case EncodeMode:
-		b := data
+		b := *data
 		if isNullTerminated {
 			b = append(b, 0x0)
 		}

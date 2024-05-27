@@ -8,10 +8,10 @@ package evr
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestGUID_UnmarshalBytes(t *testing.T) {
@@ -98,40 +98,22 @@ func TestGUID_MarshalJSON(t *testing.T) {
 	}
 }
 
-func TestDeveloperFeatures_Omitted_When_Empty(t *testing.T) {
+func TestDeveloperFeatures_EvrID_Omitted_When_Empty(t *testing.T) {
 
-	type testProfile struct {
-		BeforeDev         string            `json:"before_dev,omitempty"`
-		DeveloperFeatures DeveloperFeatures `json:"dev,omitempty"`
-		AfterDev          string            `json:"after_dev,omitempty"`
-	}
-
-	profile := testProfile{
-		BeforeDev: "before",
-		DeveloperFeatures: DeveloperFeatures{
-			DisableAfkTimeout: false,
-			EvrIDOverride: EvrId{
-				PlatformCode: 0,
-				AccountId:    0,
-			},
-		},
-		AfterDev: "after",
+	profile := ServerProfile{
+		DeveloperFeatures: &DeveloperFeatures{},
 	}
 
 	got, err := json.Marshal(profile)
 	if err != nil {
-		t.Errorf("DeveloperFeatures.MarshalJSON() error = %v", err)
+		t.Errorf("error = %v", err)
 		return
 	}
 
-	want := `{"before_dev":"before","after_dev":"after"}`
-	var wantErr error = nil
-	if err != wantErr {
-		t.Errorf("DeveloperFeatures.MarshalJSON() error = %v, wantErr %v", err, wantErr)
-		return
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("DeveloperFeatures.MarshalJSON() = `%v`, want `%v`", string(got), string(want))
+	want := `{"displayname":"","xplatformid":null,"lobbyversion":0,"logintime":0,"updatetime":0,"createtime":0,"unlocks":{"arena":{},"combat":{}},"loadout":{"instances":{"unified":{"slots":{"decal":"","decal_body":"","emote":"","secondemote":"","tint":"","tint_body":"","tint_alignment_a":"","tint_alignment_b":"","pattern":"","pattern_body":"","pip":"","chassis":"","bracer":"","booster":"","title":"","tag":"","banner":"","medal":"","goal_fx":"","emissive":""}}},"number":0},"social":{"group":"00000000-0000-0000-0000-000000000000"},"dev":null}`
+
+	if cmp.Diff(string(want), string(got)) != "" {
+		t.Errorf("(- want, + got): %s", cmp.Diff(string(want), string(got)))
 	}
 
 }

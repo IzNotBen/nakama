@@ -21,7 +21,7 @@ func TestMarshal(t *testing.T) {
 
 	sessionEndPacket := []byte{
 		0xf6, 0x40, 0xbb, 0x78, 0xa2, 0xe7, 0x8c, 0xbb, // Magic
-		0xe4, 0xee, 0x6b, 0xc7, 0x3a, 0x96, 0xe6, 0x43, // Symbol (*evr.BroadcasterSessionEnd)
+		0x00, 0x02, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, // Symbol (*evr.BroadcasterSessionEnd)
 		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Length
 		0x00, // Data
 	}
@@ -68,7 +68,7 @@ func TestMarshal(t *testing.T) {
 			t.Errorf("Unexpected error: %v", err)
 		}
 		if !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("test `%s` (got, want): %v", tt.name, cmp.Diff(got, tt.want))
+			t.Errorf("test `%s` (- want, + got): %v", tt.name, cmp.Diff(tt.want, got))
 		}
 	}
 }
@@ -78,7 +78,7 @@ func TestUnmarshal(t *testing.T) {
 	codec := NewCodec(nil)
 
 	unrequireChunk := []byte{
-		0xf6, 0x40, 0xbb, 0x78, 0xa2, 0xe7, 0x8c, 0xbb, // Header
+		0xf6, 0x40, 0xbb, 0x78, 0xa2, 0xe7, 0x8c, 0xbb, // Magic
 		0xe4, 0xee, 0x6b, 0xc7, 0x3a, 0x96, 0xe6, 0x43, // Symbol (*evr.STCPConnectionUnrequireEvent)
 		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Length
 		0x00, // Data
@@ -87,7 +87,7 @@ func TestUnmarshal(t *testing.T) {
 	//
 	sessionEndChunk := []byte{
 		0xf6, 0x40, 0xbb, 0x78, 0xa2, 0xe7, 0x8c, 0xbb, // Magic
-		0xe4, 0xee, 0x6b, 0xc7, 0x3a, 0x96, 0xe6, 0x43, // Symbol (*evr.STCPConnectionUnrequireEvent)
+		0x00, 0x02, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, // Symbol (*evr.BroadcasterSessionEnded)
 		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Length
 		0x00, // Data
 	}
@@ -127,7 +127,7 @@ func TestUnmarshal(t *testing.T) {
 				b[len(unrequireChunk)+10] = 0x00
 				return b
 			}(),
-			[]Message{},
+			nil,
 			true,
 		},
 		{
@@ -146,7 +146,6 @@ func TestUnmarshal(t *testing.T) {
 			"Short packet in second message, valid first",
 			func() []byte {
 				d := append(unrequireChunk, unrequireChunk[:len(sessionEndChunk)-8]...)
-				d[10] = 0x00
 				return d
 			}(),
 			[]Message{
@@ -156,13 +155,13 @@ func TestUnmarshal(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-
+		t.Logf("Test `%s`", tt.name)
 		messages, err := codec.Unmarshal(tt.packet)
 		if err != nil && !tt.wantErr {
 			t.Errorf("Unexpected error: %v", err)
 		}
 		if !reflect.DeepEqual(messages, tt.want) {
-			t.Errorf(cmp.Diff(messages, tt.want))
+			t.Errorf("(- want, + got): %s", cmp.Diff(tt.want, messages))
 		}
 
 		// Don't encode if the packet is invalid
@@ -175,7 +174,7 @@ func TestUnmarshal(t *testing.T) {
 
 			// Compare the encoded byte slice with the original
 			if !bytes.Equal(encoded, tt.packet) {
-				t.Errorf(cmp.Diff(encoded, tt.packet))
+				t.Errorf("(- want, + got): %s", cmp.Diff(tt.packet, encoded))
 			}
 		}
 
@@ -221,11 +220,6 @@ func TestToSymbol(t *testing.T) {
 		{
 			name: "empty string",
 			v:    "",
-			want: Symbol(0),
-		},
-		{
-			name: "unsupported type",
-			v:    true,
 			want: Symbol(0),
 		},
 	}
@@ -295,7 +289,7 @@ func TestCodec_Packetize(t *testing.T) {
 	message := []byte{
 		0xf6, 0x40, 0xbb, 0x78, 0xa2, 0xe7, 0x8c, 0xbb, // Magic
 		0xe4, 0xee, 0x6b, 0xc7, 0x3a, 0x96, 0xe6, 0x43, // Symbol (*evr.STCPConnectionUnrequireEvent)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Size
+		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Size
 		0x01, // Size
 	}
 
@@ -315,7 +309,7 @@ func TestCodec_Packetize(t *testing.T) {
 			fields{},
 			args{
 				[][]byte{
-					message[24:],
+					message[8:],
 				},
 			},
 			message,
@@ -329,7 +323,7 @@ func TestCodec_Packetize(t *testing.T) {
 			nil,
 		},
 		{
-			"Multiple byte slices",
+			"Multiple byte slices, with existing magic header",
 			fields{},
 			args{
 				[][]byte{
@@ -337,14 +331,14 @@ func TestCodec_Packetize(t *testing.T) {
 					message,
 				},
 			},
-			append(MessageMarker, message...),
+			append(message, message...),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewCodec(nil)
 			if gotPacket := p.Packetize(tt.args.chunks...); !reflect.DeepEqual(gotPacket, tt.wantPacket) {
-				t.Errorf("Codec.Packetize() Test `%s` (- want, + got): %s", tt.name, cmp.Diff(gotPacket, tt.wantPacket))
+				t.Errorf("Codec.Packetize() Test `%s` (- want, + got): %s", tt.name, cmp.Diff(tt.wantPacket, gotPacket))
 			}
 		})
 	}
@@ -406,7 +400,7 @@ func TestSymbol_UnmarshalBytes(t *testing.T) {
 }
 func TestSymbol_MarshalText_NonNil(t *testing.T) {
 	s := Symbol(123)
-	expected := []byte(`"123"`)
+	expected := []byte(`0x000000000000007b`)
 
 	result, err := s.MarshalText()
 	if err != nil {

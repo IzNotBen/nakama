@@ -36,12 +36,12 @@ func (lr LoginRequestV2) String() string {
 	return fmt.Sprintf("LoginRequestV2(session=%v, user_id=%s, login_data=%s)", lr.Session, lr.EvrId.String(), lr.Profile.String())
 }
 
-func (m *LoginRequestV2) Stream(s *EasyStream) error {
+func (m *LoginRequestV2) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(m.Session) },
+		func() error { return s.StreamGUID(&m.Session) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
-		func() error { return s.StreamJson(&m.Profile, true, NoCompression) },
+		func() error { return s.StreamJSON(&m.Profile, true, NoCompression) },
 	})
 }
 

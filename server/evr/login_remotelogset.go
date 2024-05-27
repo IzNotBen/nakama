@@ -41,7 +41,7 @@ func (m RemoteLogSet) String() string {
 	return fmt.Sprintf("SNSRemoteLogSetv3 {EvrId=%s,LogLevel=%d, Logs=%d}", m.EvrID.String(), m.LogLevel, len(m.Logs))
 }
 
-func (m *RemoteLogSet) Stream(s *EasyStream) error {
+func (m *RemoteLogSet) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountId) },

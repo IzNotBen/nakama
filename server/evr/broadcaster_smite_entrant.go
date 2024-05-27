@@ -29,7 +29,7 @@ func NewSNSLobbySmiteEntrant(evrId EvrId, statusCode uint64, message string) *SN
 	}
 }
 
-func (m *SNSLobbySmiteEntrant) Stream(s *EasyStream) error {
+func (m *SNSLobbySmiteEntrant) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamStruct(&m.EvrId) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.StatusCode) },

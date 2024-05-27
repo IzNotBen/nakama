@@ -16,7 +16,7 @@ func (m ChannelInfoRequest) Symbol() Symbol {
 	return ToSymbol(m.Token())
 }
 
-func (m *ChannelInfoRequest) Stream(s *EasyStream) error {
+func (m *ChannelInfoRequest) Stream(s *Stream) error {
 	return s.StreamByte(&m.Unused)
 }
 

@@ -29,7 +29,7 @@ func NewOtherUserProfileFailure(evrId EvrId, statusCode uint64, message string) 
 	}
 }
 
-func (m *OtherUserProfileFailure) Stream(s *EasyStream) error {
+func (m *OtherUserProfileFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamStruct(&m.EvrId) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.StatusCode) },

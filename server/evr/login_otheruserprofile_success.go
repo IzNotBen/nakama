@@ -33,12 +33,10 @@ func (m *OtherUserProfileSuccess) Symbol() Symbol {
 	return SymbolOf(m)
 }
 
-func (m *OtherUserProfileSuccess) Stream(s *EasyStream) error {
+func (m *OtherUserProfileSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamStruct(&m.EvrId) },
-		func() error {
-			return s.StreamCompressedBytes(m.ServerProfileJSON, true, ZstdCompression)
-		},
+		func() error { return s.StreamCompressedBytes(&m.ServerProfileJSON, true, ZstdCompression) },
 	})
 }
 

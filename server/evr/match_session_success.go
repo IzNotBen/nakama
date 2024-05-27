@@ -79,13 +79,13 @@ func (m *LobbySessionSuccessv4) String() string {
 	)
 }
 
-func (m *LobbySessionSuccessv4) Stream(s *EasyStream) error {
+func (m *LobbySessionSuccessv4) Stream(s *Stream) error {
 	var se *PacketEncoderSettings
 	var ce *PacketEncoderSettings
 
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameMode) },
-		func() error { return s.StreamGuid(m.MatchID) },
+		func() error { return s.StreamGUID(&m.MatchID) },
 		func() error { return s.StreamStruct(&m.Endpoint) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
@@ -125,13 +125,13 @@ func (m *LobbySessionSuccessv5) String() string {
 		m.TeamIndex,
 	)
 }
-func (m *LobbySessionSuccessv5) Stream(s *EasyStream) error {
+func (m *LobbySessionSuccessv5) Stream(s *Stream) error {
 	var se *PacketEncoderSettings
 	var ce *PacketEncoderSettings
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameMode) },
-		func() error { return s.StreamGuid(m.MatchID) },
-		func() error { return s.StreamGuid(m.ChannelID) },
+		func() error { return s.StreamGUID(&m.MatchID) },
+		func() error { return s.StreamGUID(&m.ChannelID) },
 		func() error { return s.StreamStruct(&m.Endpoint) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },

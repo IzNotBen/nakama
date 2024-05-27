@@ -28,7 +28,7 @@ func NewDocumentFailureWithArgs(message string) *DocumentFailure {
 	}
 }
 
-func (m *DocumentFailure) Stream(s *EasyStream) error {
+func (m *DocumentFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },

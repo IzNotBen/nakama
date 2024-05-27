@@ -25,7 +25,7 @@ func (r *BroadcasterChallengeRequest) String() string {
 	return fmt.Sprintf("ERGameServerChallengeRequest(input_payload=%s)", hex.EncodeToString(r.InputPayload))
 }
 
-func (m *BroadcasterChallengeRequest) Stream(s *EasyStream) error {
+func (m *BroadcasterChallengeRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error {
 			if s.Mode == DecodeMode {

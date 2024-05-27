@@ -40,7 +40,7 @@ func (lr BroadcasterRegistrationFailure) String() string {
 	return fmt.Sprintf("BroadcasterRegistrationFailure(result=%v)", lr.Code)
 }
 
-func (m *BroadcasterRegistrationFailure) Stream(s *EasyStream) error {
+func (m *BroadcasterRegistrationFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 
 		func() error { b := byte(m.Code); return s.StreamByte(&b) },

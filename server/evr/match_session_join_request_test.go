@@ -34,12 +34,12 @@ func TestLobbyJoinSessionRequest_LobbyID(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-	packet, err := codec.Unmarshal(b)
+	packet := codec.Packetize(b)
+	messages, err := codec.Unmarshal(packet)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
-	got, ok := packet[0].(*LobbyJoinSessionRequest)
+	got, ok := messages[0].(*LobbyJoinSessionRequest)
 	if !ok {
 		t.Error("failed to cast")
 	}
@@ -54,12 +54,12 @@ func TestLobbyJoinSessionRequest_LobbyID(t *testing.T) {
 		SessionSettings: SessionSettings{
 			AppID: 1369078409873402,
 			Mode:  0,
-			Level: 0,
+			Level: LevelUnspecified,
 		},
 		Entrants: []Entrant{
 			{
-				EvrID:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-				Alignment: -1,
+				EvrID: *lo.Must(ParseEvrID("OVR-3963667097037078")),
+				Role:  -1,
 			},
 		},
 	}
@@ -67,8 +67,8 @@ func TestLobbyJoinSessionRequest_LobbyID(t *testing.T) {
 	// compare the two using a third-party library
 
 	if !reflect.DeepEqual(*got, want) {
-		if diff := cmp.Diff(*got, want); diff != "" {
-			t.Errorf("mismatch (-got +want):\n%s", diff)
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("mismatch (-want +got):\n%s", diff)
 		}
 	}
 }
@@ -122,8 +122,8 @@ func TestLobbyJoinSessionRequest_Moderator(t *testing.T) {
 		},
 		Entrants: []Entrant{
 			{
-				EvrID:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-				Alignment: -1,
+				EvrID: *lo.Must(ParseEvrID("OVR_ORG-3963667097037078")),
+				Role:  -1,
 			},
 		},
 	}
@@ -176,7 +176,7 @@ func TestLobbyJoinSessionRequest_ModerateUser(t *testing.T) {
 		VersionLock:    1,
 		Platform:       ToSymbol("OVR"),
 		LoginSessionID: GUID(uuid.Must(uuid.FromString("e7c16fb6-fbb7-11ee-b192-66d3ff8a653b"))),
-		OtherEvrID:     *lo.Must(ParseEvrId("DMO-1")),
+		OtherEvrID:     *lo.Must(ParseEvrID("DMO-1")),
 		Flags:          11,
 		SessionSettings: SessionSettings{
 			AppID: 1369078409873402,
@@ -185,8 +185,8 @@ func TestLobbyJoinSessionRequest_ModerateUser(t *testing.T) {
 		},
 		Entrants: []Entrant{
 			{
-				EvrID:     *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
-				Alignment: -1,
+				EvrID: *lo.Must(ParseEvrID("OVR_ORG-3963667097037078")),
+				Role:  -1,
 			},
 		},
 	}

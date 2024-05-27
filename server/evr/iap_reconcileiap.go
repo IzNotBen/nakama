@@ -30,9 +30,9 @@ func NewIAPReconcile(userID EvrId, session GUID) *IAPReconcile {
 	}
 }
 
-func (r *IAPReconcile) Stream(s *EasyStream) error {
+func (r *IAPReconcile) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(r.Session) },
+		func() error { return s.StreamGUID(&r.Session) },
 		func() error { return s.StreamStruct(&r.EvrID) },
 	})
 }

@@ -20,7 +20,7 @@ func (m IAPPurchaseItems) String() string {
 	return fmt.Sprintf("%s()", m.Token())
 }
 
-func (r *IAPPurchaseItems) Stream(s *EasyStream) error {
+func (r *IAPPurchaseItems) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.Skip(1) },
 	})
