@@ -74,7 +74,7 @@ func NewDocumentSuccess(document Document) *DocumentSuccess {
 	}
 }
 
-func (m *DocumentSuccess) Stream(s *EasyStream) error {
+func (m *DocumentSuccess) Stream(s *Stream) error {
 	documentSymbol := m.Document.Symbol()
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamSymbol(&documentSymbol) },
@@ -88,7 +88,7 @@ func (m *DocumentSuccess) Stream(s *EasyStream) error {
 					return fmt.Errorf("unknown document type: `%s`", documentSymbol.Token())
 				}
 			}
-			return s.StreamJson(m.Document, true, ZstdCompression)
+			return s.StreamJSON(m.Document, true, ZstdCompression)
 		},
 	})
 }

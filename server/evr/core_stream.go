@@ -14,6 +14,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-playground/validator/v10"
+	"github.com/go-restruct/restruct"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -166,15 +167,98 @@ func (s *Stream) StreamNullTerminatedString(str *string) error {
 	}
 }
 
-func (s *Stream) StreamStruct(obj Serializable) error {
+func (s *Stream) StreamStruct(obj Serializer) error {
 	return obj.Stream(s)
 }
 
+type Streamer any
+
+func (s *Stream) Stream(v any) error {
+	// Check if this is a restruct Unpacker or Packer
+	switch s.Mode {
+	case DecodeMode:
+		if p, ok := v.(restruct.Unpacker); ok {
+			b := make([]byte, s.r.Len())
+			remaining, err := p.Unpack(b, binary.LittleEndian)
+			if err != nil {
+				return err
+			}
+			// Set position to the end of the stream - remaining
+			if err = s.SetPosition(s.Len() - len(remaining)); err != nil {
+				return err
+			}
+			return nil
+		}
+	case EncodeMode:
+		if p, ok := v.(restruct.Packer); ok {
+			b := make([]byte, p.SizeOf())
+			_, err := p.Pack(b, binary.LittleEndian)
+			if err != nil {
+				return err
+			}
+			if _, err = s.w.Write(b); err != nil {
+				return err
+			}
+			return nil
+		}
+	default:
+		return errInvalidMode
+	}
+
+	switch t := v.(type) {
+	case Serializer:
+		return s.StreamStruct(t)
+	case []Serializer:
+		for _, t := range t {
+			if err := s.StreamStruct(t); err != nil {
+				return err
+			}
+		}
+		return nil
+	case []Streamer:
+		for _, t := range t {
+			if err := s.Stream(t); err != nil {
+				return err
+			}
+		}
+		return nil
+	case *Symbol:
+		return s.StreamSymbol(t)
+	case *int:
+		return s.StreamNumber(binary.LittleEndian, t)
+	case *int32:
+		return s.StreamNumber(binary.LittleEndian, t)
+	case *int64:
+		return s.StreamNumber(binary.LittleEndian, t)
+	case *uint32:
+		return s.StreamNumber(binary.LittleEndian, t)
+	case *uint64:
+		return s.StreamNumber(binary.LittleEndian, t)
+	case *byte:
+		return s.StreamByte(t)
+	case *[]byte:
+		return s.StreamBytes(t, -1)
+	case *string:
+		return s.StreamString(t, len(*t))
+	case *GUID:
+		return s.StreamGUID(t)
+	case []GUID:
+		return s.StreamGUIDs(t)
+	case *[]GUID:
+		return s.StreamGUIDs(*t)
+	case *net.IP:
+		return s.StreamIPAddress(t)
+
+	default:
+		return errors.New("Stream: unsupported type")
+	}
+}
+
 // Stream multiple GUIDs
-func (s *Stream) StreamGUIDs(guids []GUID) error {
+func (s *Stream) StreamGUIDs(g []GUID) error {
 	var err error
-	for i := 0; i < len(guids); i++ {
-		if err = s.StreamGUID(&guids[i]); err != nil {
+	for i := 0; i < len(g); i++ {
+		if err = s.StreamGUID(&g[i]); err != nil {
 			return err
 		}
 	}
@@ -315,7 +399,7 @@ func (s *Stream) Skip(count int) error {
 	return nil
 }
 
-type Serializable interface {
+type Serializer interface {
 	Stream(s *Stream) error
 }
 

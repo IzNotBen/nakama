@@ -134,6 +134,9 @@ func (s *SessionSettings) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+func (ss *SessionSettings) Stream(s *Stream) error {
+	return s.StreamJSON(ss, true, NoCompression)
+}
 
 type Role int16
 
@@ -146,15 +149,12 @@ const (
 	ModeratorRole
 )
 
-func (t Role) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.String())
+func (t Role) MarshalText() ([]byte, error) {
+	return []byte(t.String()), nil
 }
 
-func (t *Role) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
+func (t *Role) UnmarshalText(b []byte) error {
+	s := string(b)
 	switch strings.ToLower(s) {
 	default:
 		i, err := strconv.Atoi(s)

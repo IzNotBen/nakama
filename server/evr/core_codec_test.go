@@ -55,7 +55,7 @@ func TestMarshal(t *testing.T) {
 			},
 			[]Message{
 				&STcpConnectionUnrequireEvent{},
-				&BroadcasterSessionEnded{},
+				&BroadcasterSessionEndedV1{},
 			},
 			append(unrequirePacket, sessionEndPacket...),
 			false,
@@ -103,7 +103,7 @@ func TestUnmarshal(t *testing.T) {
 			append(unrequireChunk, sessionEndChunk...),
 			[]Message{
 				&STcpConnectionUnrequireEvent{},
-				&BroadcasterSessionEnded{},
+				&BroadcasterSessionEndedV1{},
 			},
 			false,
 		},
@@ -115,7 +115,7 @@ func TestUnmarshal(t *testing.T) {
 				return d
 			}(),
 			[]Message{
-				&BroadcasterSessionEnded{},
+				&BroadcasterSessionEndedV1{},
 			},
 			true,
 		},
@@ -138,7 +138,7 @@ func TestUnmarshal(t *testing.T) {
 				return b
 			}(),
 			[]Message{
-				&BroadcasterSessionEnded{},
+				&BroadcasterSessionEndedV1{},
 			},
 			true,
 		},

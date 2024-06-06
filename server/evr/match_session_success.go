@@ -60,18 +60,10 @@ func (m LobbySessionSuccess) Version5() *LobbySessionSuccessv5 {
 
 type LobbySessionSuccessv4 LobbySessionSuccess // LobbSessionSuccessv4 is v5 without the channel UUID.
 
-func (m LobbySessionSuccessv4) Token() string {
-	return "SNSLobbySessionSuccessv4"
-}
-
-func (m *LobbySessionSuccessv4) Symbol() Symbol {
-	return SymbolOf(m)
-}
-
 // ToString returns a string representation of the LobbySessionSuccessv5 message.
 func (m *LobbySessionSuccessv4) String() string {
-	return fmt.Sprintf("%s(game_type=%d, matching_session=%s, endpoint=%v, team_index=%d)",
-		m.Token(),
+	return fmt.Sprintf("%T(game_type=%d, matching_session=%s, endpoint=%v, team_index=%d)",
+		m,
 		m.GameMode,
 		m.MatchID,
 		m.Endpoint,
@@ -106,18 +98,10 @@ func (m *LobbySessionSuccessv4) Stream(s *Stream) error {
 
 type LobbySessionSuccessv5 LobbySessionSuccess
 
-func (m LobbySessionSuccessv5) Token() string {
-	return "SNSLobbySessionSuccessv5"
-}
-
-func (m *LobbySessionSuccessv5) Symbol() Symbol {
-	return SymbolOf(m)
-}
-
 // ToString returns a string representation of the LobbySessionSuccessv5 message.
 func (m *LobbySessionSuccessv5) String() string {
-	return fmt.Sprintf("%s(game_type=%d, matching_session=%s, channel=%s, endpoint=%v, team_index=%d)",
-		m.Token(),
+	return fmt.Sprintf("%T(game_type=%d, matching_session=%s, channel=%s, endpoint=%v, team_index=%d)",
+		m,
 		m.GameMode,
 		m.MatchID,
 		m.ChannelID,

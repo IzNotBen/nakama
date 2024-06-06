@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
 )
@@ -14,49 +13,77 @@ type BroadcasterRegistrationRequest struct {
 	Port        uint16
 	Region      Symbol
 	VersionLock uint64
+	TickRate    uint32 // V2
 }
 
-func (m BroadcasterRegistrationRequest) Symbol() Symbol {
-	return 0x7777777777777777
-}
-func (m BroadcasterRegistrationRequest) Token() string {
-	return "ERGameServerRegistrationRequest"
-}
-
-func NewBroadcasterRegistrationRequest(serverId uint64, internalAddress net.IP, port uint16, regionSymbol Symbol, versionLock uint64) *BroadcasterRegistrationRequest {
+func NewBroadcasterRegistrationRequest(serverId uint64, internalAddress net.IP, port uint16, regionSymbol Symbol, versionLock uint64, tickRate uint32) *BroadcasterRegistrationRequest {
 	return &BroadcasterRegistrationRequest{
 		ServerId:    serverId,
 		InternalIP:  internalAddress,
 		Port:        port,
 		Region:      regionSymbol,
 		VersionLock: versionLock,
+		TickRate:    tickRate,
 	}
 }
 
-func (m *BroadcasterRegistrationRequest) Stream(s *Stream) error {
-	return RunErrorFunctions([]func() error{
-
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ServerId) },
-		func() error { return s.StreamIPAddress(&m.InternalIP) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Port) },
-		func() error {
-			pad10 := make([]byte, 10) // Pad to 16 bytes
-			for i := range pad10 {
-				pad10[i] = 0xcc
-			}
-			return s.StreamBytes(&pad10, 10)
-		},
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Region) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.VersionLock) },
-	})
-}
 func (m BroadcasterRegistrationRequest) String() string {
-	return fmt.Sprintf("%s(server_id=%d, internal_ip=%s, port=%d, region=%d, version_lock=%d)",
-		m.Token(),
+	return fmt.Sprintf("%T(server_id=%d, internal_ip=%s, port=%d, region=%d, version_lock=%d, tick_rate=%d)",
+		m,
 		m.ServerId,
 		m.InternalIP,
 		m.Port,
 		m.Region,
 		m.VersionLock,
+		m.TickRate,
 	)
+}
+
+type BroadcasterRegistrationRequestV1 struct {
+	BroadcasterRegistrationRequest
+}
+
+type BroadcasterRegistrationRequestV2 struct {
+	BroadcasterRegistrationRequest
+}
+
+func (m BroadcasterRegistrationRequest) Version1() *BroadcasterRegistrationRequestV1 {
+	return &BroadcasterRegistrationRequestV1{
+		BroadcasterRegistrationRequest: m,
+	}
+}
+
+func (m BroadcasterRegistrationRequest) Version2() *BroadcasterRegistrationRequestV2 {
+	return &BroadcasterRegistrationRequestV2{
+		BroadcasterRegistrationRequest: m,
+	}
+}
+
+func (m *BroadcasterRegistrationRequestV1) Stream(s *Stream) error {
+	skipped := make([]byte, 10)
+	return RunErrorFunctions([]func() error{
+		func() error {
+			return s.Stream([]Streamer{
+				&m.ServerId,
+				&m.InternalIP,
+				&m.Port,
+				&skipped,
+				&m.Region,
+				&m.VersionLock,
+			})
+		},
+	})
+}
+
+func (m *BroadcasterRegistrationRequestV2) Stream(s *Stream) error {
+	skipped := make([]byte, 10)
+	return s.Stream([]Streamer{
+		&m.ServerId,
+		&m.InternalIP,
+		&m.Port,
+		&skipped,
+		&m.Region,
+		&m.VersionLock,
+		&m.TickRate,
+	})
 }

@@ -1,11 +1,7 @@
 package evr
 
-func (m STcpConnectionUnrequireEvent) Token() string {
-	return "STcpConnectionUnrequireEvent"
-}
-
-func (m *STcpConnectionUnrequireEvent) Symbol() Symbol {
-	return SymbolOf(m)
+type STcpConnectionUnrequireEvent struct {
+	_ byte
 }
 
 func (m *STcpConnectionUnrequireEvent) Stream(s *Stream) error {
