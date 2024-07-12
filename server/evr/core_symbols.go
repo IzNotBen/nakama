@@ -1,60 +1,51 @@
 package evr
 
-func generateSymbolSeed() [0x100]uint64 {
-	seed := [0x100]uint64{}
-	i := uint64(0)
-	s := uint64(0x95ac9329ac4bc9b5)
-	for i < 0x100 {
-		num1 := uint64(0)
-		if (i & 0x80) != 0 {
-			num1 = 0x2b5926535897936a
+func convert(p1 uint32) uint32 {
+	u1 := p1&0xff00ff00>>8 | p1&0xff00ff<<8
+	return u1>>16 | u1<<16
+}
+
+func convert2(v uint64) uint64 {
+	v = v&0xff00ff00ff00ff00>>8 | v&0xff00ff00ff00ff<<8
+	v = v&0xffff0000ffff0000>>16 | v&0xffff0000ffff<<16
+	return v>>32 | v<<32
+}
+
+func generateHashSeed() [0x100]uint64 {
+	seeds := [0x100]uint64{0}
+
+	var (
+		v  uint64
+		c1 uint64 = 0x2b5926535897936a
+		c2 uint64 = 0x95ac9329ac4bc9b5
+		c3 uint64 = 0xbef5b57af4dc5adf
+	)
+
+	for i := 1; i < 0x100; i++ {
+		v = 0
+
+		if i&0x80 != 0 {
+			v = c1
+			if i&0x40 != 0 {
+				v = c3
+			}
+		} else if i&0x40 != 0 {
+			v = c2
 		}
 
-		if (i & 0x40) != 0 {
-			num1 = 0xbef5b57af4dc5adf
-			if (i & 0x80) == 0 {
-				num1 = s
+		for j := 0x20; j != 0; j >>= 1 {
+			v *= 2
+			if i&j != 0 {
+				v = v ^ c2
 			}
 		}
 
-		num2 := num1*2 ^ s
-		if (i & 0x20) == 0 {
-			num2 = num1 * 2
-		}
-
-		num1 = num2*2 ^ s
-		if (i & 0x10) == 0 {
-			num1 = num2 * 2
-		}
-
-		num2 = num1*2 ^ s
-		if (i & 8) == 0 {
-			num2 = num1 * 2
-		}
-
-		num1 = num2*2 ^ s
-		if (i & 4) == 0 {
-			num1 = num2 * 2
-		}
-
-		num2 = num1*2 ^ s
-		if (i & 2) == 0 {
-			num2 = num1 * 2
-		}
-
-		num1 = num2*2 ^ s
-		if (i & 1) == 0 {
-			num1 = num2 * 2
-		}
-
-		seed[i] = num1 * 2
-		i += 1
+		seeds[i] = v * 2
 	}
-
-	return seed
+	return seeds
 }
 
-var symbolSeed [0x100]uint64 = generateSymbolSeed()
+var symbolSeed [0x100]uint64 = generateHashSeed()
 
 var SymbolCache = map[Symbol]SymbolToken{
 	0x8d5ad3c4f2166c6c: "SNSFindServerRegionInfo",            // Custom?
