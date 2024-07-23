@@ -184,6 +184,12 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		}
 	}
 
+	config, err := LoadMatchmakingSettings(ctx, p.runtimeModule, userId)
+	if err != nil {
+		logger.Warn("Failed to load matchmaking config", zap.Error(err))
+	}
+	verbose := config.Verbose
+
 	// Get the GroupID from the user's metadata
 	groupID := metadata.GetActiveGroupID()
 	// Validate that the user is in the group

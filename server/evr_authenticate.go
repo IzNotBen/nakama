@@ -694,11 +694,6 @@ func (a *AccountUserMetadata) MarshalToMap() (map[string]interface{}, error) {
 	return m, nil
 }
 
-type AccountCosmetics struct {
-	JerseyNumber int64               `json:"number"`           // The loadout number (jersey number)
-	Loadout      evr.CosmeticLoadout `json:"cosmetic_loadout"` // The loadout
-}
-
 type SuspensionStatus struct {
 	GuildId            string        `json:"guild_id"`
 	GuildName          string        `json:"guild_name"`

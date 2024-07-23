@@ -416,9 +416,11 @@ func NewGuildGroup(group *api.Group) *GuildGroup {
 
 type GuildGroupMembership struct {
 	GuildGroup   GuildGroup
+	DisplayName  string
 	isMember     bool
 	isModerator  bool // Admin
 	isServerHost bool // Broadcaster Host
+	isSuspended  bool
 	canAllocate  bool // Can allocate servers with slash command
 	DisplayName  *atomic.String
 }
@@ -427,6 +429,7 @@ func NewGuildGroupMembership(group *api.Group, userID uuid.UUID, state api.UserG
 	gg := NewGuildGroup(group)
 	return GuildGroupMembership{
 		GuildGroup:   *gg,
+		DisplayName:  displayName,
 		isMember:     state <= api.UserGroupList_UserGroup_MEMBER,
 		isModerator:  state <= api.UserGroupList_UserGroup_ADMIN,
 		isServerHost: slices.Contains(gg.ServerHostUserIDs(), userID.String()),
@@ -459,6 +462,16 @@ func (r *LocalDiscordRegistry) GetGuildGroupMemberships(ctx context.Context, use
 	}
 
 	userIDStr := userID.String()
+	account, err := r.nk.AccountGetId(ctx, userIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("error getting account: %w", err)
+	}
+
+	metadata := &GroupMetadata{}
+	if err := json.Unmarshal([]byte(account.CustomId), metadata); err != nil {
+		return nil, fmt.Errorf("error unmarshalling group metadata: %w", err)
+	}
+
 	memberships := make([]GuildGroupMembership, 0)
 	cursor := ""
 	for {
