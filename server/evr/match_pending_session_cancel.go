@@ -31,12 +31,12 @@ func NewLobbyPendingSessionCancel(session uuid.UUID) *LobbyPendingSessionCancel 
 	}
 }
 
-func (m *LobbyPendingSessionCancel) Stream(s *EasyStream) error {
+func (m *LobbyPendingSessionCancel) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
+		func() error { return s.Stream(&m.Session) },
 	})
 }
 
-func (m *LobbyPendingSessionCancel) GetSessionID() uuid.UUID {
+func (m *LobbyPendingSessionCancel) GetLoginSessionID() uuid.UUID {
 	return m.Session
 }

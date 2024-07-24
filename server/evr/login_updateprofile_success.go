@@ -8,20 +8,12 @@ type UpdateProfileSuccess struct {
 	UserId EvrID
 }
 
-func (m *UpdateProfileSuccess) Token() string {
-	return "SNSUpdateProfileSuccess"
+func (m *UpdateProfileSuccess) String() string {
+	return fmt.Sprintf("%T(user_id=%s)", m, m.UserId.String())
 }
 
-func (m *UpdateProfileSuccess) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
-func (lr *UpdateProfileSuccess) String() string {
-	return fmt.Sprintf("%s(user_id=%s)", lr.Token(), lr.UserId.String())
-}
-
-func (m *UpdateProfileSuccess) Stream(s *EasyStream) error {
-	return s.StreamStruct(&m.UserId)
+func (m *UpdateProfileSuccess) Stream(s *Stream) error {
+	return s.Stream(&m.UserId)
 }
 func NewSNSUpdateProfileSuccess(userId *EvrID) *UpdateProfileSuccess {
 	return &UpdateProfileSuccess{

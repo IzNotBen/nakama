@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 )
 
@@ -12,23 +11,15 @@ type LoggedInUserProfileSuccess struct {
 	Payload GameProfiles
 }
 
-func (m LoggedInUserProfileSuccess) Token() string {
-	return "SNSLoggedInUserProfileSuccess"
-}
-
-func (m LoggedInUserProfileSuccess) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
-func (m *LoggedInUserProfileSuccess) Stream(s *EasyStream) error {
+func (m *LoggedInUserProfileSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.UserId.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.UserId.AccountID) },
-		func() error { return s.StreamJson(&m.Payload, true, ZstdCompression) },
+		func() error { return s.Stream(&m.UserId.PlatformCode) },
+		func() error { return s.Stream(&m.UserId.AccountID) },
+		func() error { return s.StreamJSON(&m.Payload, true, ZstdCompression) },
 	})
 }
-func (r LoggedInUserProfileSuccess) String() string {
-	return fmt.Sprintf("LoggedInUserProfileSuccess(user_id=%v)", r.UserId)
+func (m LoggedInUserProfileSuccess) String() string {
+	return fmt.Sprintf("%T(user_id=%v)", m, m.UserId)
 }
 
 func NewLoggedInUserProfileSuccess(userId EvrID, client ClientProfile, server ServerProfile) *LoggedInUserProfileSuccess {

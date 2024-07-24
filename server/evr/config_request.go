@@ -12,10 +12,10 @@ func (m ConfigRequest) String() string {
 	return fmt.Sprintf("%T(id=%s)", m, m.ID)
 }
 
-func (m *ConfigRequest) Stream(s *EasyStream) error {
+func (m *ConfigRequest) Stream(s *Stream) error {
 	pad := byte(0)
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamByte(&pad) },
-		func() error { return s.StreamJson(&m, true, NoCompression) },
+		func() error { return s.StreamJSON(&m, true, NoCompression) },
 	})
 }

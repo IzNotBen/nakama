@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/gofrs/uuid/v5"
@@ -25,16 +24,8 @@ type LobbyStatusNotify struct {
 	Reason     StatusUpdateReason // The reason for the status notification.
 }
 
-func (m *LobbyStatusNotify) Token() string {
-	return "SNSLobbyStatusNotifyv2"
-}
-
-func (m *LobbyStatusNotify) Symbol() Symbol {
-	return SymbolOf(m)
-}
-
 func (m LobbyStatusNotify) String() string {
-	return fmt.Sprintf("%s()", m.Token())
+	return fmt.Sprintf("%T()", m)
 }
 
 // NewLobbyStatusNotifyv2WithArgs initializes a new LobbyStatusNotifyv2 with the provided arguments.
@@ -47,12 +38,12 @@ func NewLobbyStatusNotifyv2(channel uuid.UUID, message string, expiryTime uint64
 	}
 }
 
-func (l *LobbyStatusNotify) Stream(s *EasyStream) error {
+func (l *LobbyStatusNotify) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 
-		func() error { return s.StreamGuid(&l.Channel) },
+		func() error { return s.Stream(&l.Channel) },
 		func() error { return s.StreamBytes(&l.Message, 64) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &l.ExpiryTime) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &l.Reason) },
+		func() error { return s.Stream(&l.ExpiryTime) },
+		func() error { return s.Stream(&l.Reason) },
 	})
 }

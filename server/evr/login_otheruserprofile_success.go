@@ -25,17 +25,9 @@ func NewOtherUserProfileSuccess(evrID EvrID, profile *ServerProfile) *OtherUserP
 	}
 }
 
-func (m *OtherUserProfileSuccess) Token() string {
-	return "SNSOtherUserProfileSuccess"
-}
-
-func (m *OtherUserProfileSuccess) Symbol() Symbol {
-	return SymbolOf(m)
-}
-
 func (m *OtherUserProfileSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamStruct(&m.EvrID) },
+		func() error { return s.Stream(&m.EvrID) },
 		func() error {
 			return s.StreamCompressedBytes(m.ServerProfileJSON, true, ZstdCompression)
 		},
@@ -43,7 +35,7 @@ func (m *OtherUserProfileSuccess) Stream(s *Stream) error {
 }
 
 func (m *OtherUserProfileSuccess) String() string {
-	return fmt.Sprintf("%s(user_id=%s)", m.Token(), m.EvrID.String())
+	return fmt.Sprintf("%T(user_id=%s)", m, m.EvrID.String())
 }
 
 func (m *OtherUserProfileSuccess) GetProfile() ServerProfile {

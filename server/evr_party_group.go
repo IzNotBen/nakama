@@ -8,6 +8,7 @@ import (
 type PartyGroup struct {
 	name string
 	ph   *PartyHandler
+	self *PartyPresenceListItem
 }
 
 func (pg *PartyGroup) ID() uuid.UUID {
@@ -31,4 +32,17 @@ func (pg *PartyGroup) GetMembers() []*PartyPresenceListItem {
 	p.RLock()
 	defer p.RUnlock()
 	return p.members.List()
+}
+
+func (pg *PartyGroup) IsLeader() bool {
+	p := pg.ph
+	p.RLock()
+	defer p.RUnlock()
+	return p.leader != nil && p.leader.PresenceID == pg.self.PresenceID
+}
+
+func (pg *PartyGroup) Size() int {
+	pg.ph.RLock()
+	defer pg.ph.RUnlock()
+	return pg.ph.members.Size()
 }

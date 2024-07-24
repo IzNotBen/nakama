@@ -11,17 +11,9 @@ type OtherUserProfileRequest struct {
 	Data  []byte // The request data for the underlying profile, indicating fields of interest.
 }
 
-func (m OtherUserProfileRequest) Token() string {
-	return "SNSOtherUserProfileRequest"
-}
-
-func (m OtherUserProfileRequest) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
 func (m *OtherUserProfileRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamStruct(&m.EvrID) },
+		func() error { return s.Stream(&m.EvrID) },
 		func() error { return s.StreamCompressedBytes(m.Data, true, NoCompression) },
 	})
 }
@@ -40,5 +32,5 @@ func (m *OtherUserProfileRequest) String() string {
 	if err != nil {
 		profileJson = []byte(fmt.Sprintf("error: %s", err))
 	}
-	return fmt.Sprintf("%s(user_id=%s, profile_request=%s)", m.Token(), m.EvrID.String(), profileJson)
+	return fmt.Sprintf("%T(user_id=%s, profile_request=%s)", m, m.EvrID.String(), profileJson)
 }

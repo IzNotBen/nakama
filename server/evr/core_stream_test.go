@@ -2,7 +2,6 @@ package evr
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"io"
 	"net"
@@ -24,7 +23,7 @@ func TestStream_StreamNumber_Write(t *testing.T) {
 	// Create a variable to hold the expected value
 	uintv := uint64(1234567)
 	want := []byte{0x87, 0xD6, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00}
-	if err := stream.StreamNumber(binary.LittleEndian, &uintv); err != nil {
+	if err := stream.StreamLE(&uintv); err != nil {
 		t.Fatalf("failed to stream number: %v", err)
 	}
 	if got := stream.Bytes(); !bytes.Equal(got, want) {
@@ -35,7 +34,7 @@ func TestStream_StreamNumber_Write(t *testing.T) {
 	// Test int64
 	intv := int64(-1234567890)
 	want = []byte{0x2e, 0xfd, 0x69, 0xb6, 0xff, 0xff, 0xff, 0xff}
-	if err := stream.StreamNumber(binary.LittleEndian, &intv); err != nil {
+	if err := stream.StreamLE(&intv); err != nil {
 		t.Fatalf("failed to stream number: %v", err)
 	}
 	if got := stream.Bytes(); !bytes.Equal(got, want) {
@@ -46,7 +45,7 @@ func TestStream_StreamNumber_Write(t *testing.T) {
 	// Test int64
 	uintv = uint64(0xFFFFFFFFB669FD2E)
 	want = []byte{0x2e, 0xfd, 0x69, 0xb6, 0xff, 0xff, 0xff, 0xff}
-	if err := stream.StreamNumber(binary.LittleEndian, &uintv); err != nil {
+	if err := stream.StreamLE(&uintv); err != nil {
 		t.Fatalf("failed to stream number: %v", err)
 	}
 	if got := stream.Bytes(); !bytes.Equal(got, want) {
@@ -65,7 +64,7 @@ func TestStream_StreamNumber_Read(t *testing.T) {
 	// Create a variable to hold the expected value
 	want := int64(-1234567890)
 	got := int64(0)
-	if err := stream.StreamNumber(binary.LittleEndian, &got); err != nil {
+	if err := stream.StreamLE(&got); err != nil {
 		t.Fatalf("failed to stream number: %v", err)
 	}
 	if want != got {
@@ -90,7 +89,7 @@ func TestStream_StreamNumber_WriteThenRead(t *testing.T) {
 	// Test int64
 	intv := int64(-1234567890)
 	want := []byte{0x2e, 0xfd, 0x69, 0xb6, 0xff, 0xff, 0xff, 0xff}
-	if err := stream.StreamNumber(binary.LittleEndian, &intv); err != nil {
+	if err := stream.StreamLE(&intv); err != nil {
 		t.Fatalf("failed to stream number: %v", err)
 	}
 	encodedint := stream.Bytes()
@@ -102,7 +101,7 @@ func TestStream_StreamNumber_WriteThenRead(t *testing.T) {
 	// Test int64
 	uintv := uint64(18446742839186183726)
 	want = []byte{0x2e, 0x56, 0xac, 0x90, 0xe0, 0xfe, 0xff, 0xff}
-	if err := stream.StreamNumber(binary.LittleEndian, &uintv); err != nil {
+	if err := stream.StreamLE(&uintv); err != nil {
 		t.Fatalf("failed to stream number: %v", err)
 	}
 	encodeduint := stream.Bytes()
@@ -118,7 +117,7 @@ func TestStream_StreamNumber_WriteThenRead(t *testing.T) {
 	// Create a variable to hold the expected value
 	in := int64(-1234523367890)
 	got := int64(0)
-	if err := stream.StreamNumber(binary.LittleEndian, &got); err != nil {
+	if err := stream.StreamLE(&got); err != nil {
 		t.Fatalf("failed to stream number: %v", err)
 	}
 	if got != in {

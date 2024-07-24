@@ -44,9 +44,9 @@ func (m *GameSettings) String() string {
 	return fmt.Sprintf("%T()", m)
 }
 
-func (m *GameSettings) Stream(s *EasyStream) error {
+func (m *GameSettings) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamJson(&m, false, ZlibCompression) },
+		func() error { return s.StreamJSON(&m, false, ZlibCompression) },
 	})
 }
 

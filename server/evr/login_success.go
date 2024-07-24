@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/gofrs/uuid/v5"
@@ -19,28 +18,19 @@ func NewLoginSuccess(session uuid.UUID, evrID EvrID) *LoginSuccess {
 	}
 }
 
-func (m LoginSuccess) Token() string {
-	return "SNSLogInSuccess"
-}
-
-func (m *LoginSuccess) Symbol() Symbol {
-	return SymbolOf(m)
-}
-
 func (m LoginSuccess) String() string {
-	return fmt.Sprintf("%s(session=%v, user_id=%s)",
-		m.Token(), m.Session, m.EvrID.String())
+	return fmt.Sprintf("%T(session=%v, user_id=%s)", m, m.Session, m.EvrID.String())
 }
 
-func (m *LoginSuccess) Stream(s *EasyStream) error {
+func (m *LoginSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
+		func() error { return s.Stream(&m.Session) },
+		func() error { return s.Stream(&m.EvrID.PlatformCode) },
+		func() error { return s.Stream(&m.EvrID.AccountID) },
 	})
 }
 
-func (m *LoginSuccess) GetSessionID() uuid.UUID {
+func (m *LoginSuccess) GetLoginSessionID() uuid.UUID {
 	return m.Session
 }
 

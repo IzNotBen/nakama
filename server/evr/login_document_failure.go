@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 )
 
@@ -12,14 +11,6 @@ type DocumentFailure struct {
 	Message string // The message to return with the failure.
 }
 
-func (m DocumentFailure) Token() string {
-	return "SNSDocumentFailure"
-}
-
-func (m *DocumentFailure) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
 func NewDocumentFailureWithArgs(message string) *DocumentFailure {
 	return &DocumentFailure{
 		Unk0:    0,
@@ -28,13 +19,13 @@ func NewDocumentFailureWithArgs(message string) *DocumentFailure {
 	}
 }
 
-func (m *DocumentFailure) Stream(s *EasyStream) error {
+func (m *DocumentFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
+		func() error { return s.Stream(&m.Unk0) },
+		func() error { return s.Stream(&m.Unk1) },
 		func() error { return s.StreamNullTerminatedString(&m.Message) },
 	})
 }
 func (m *DocumentFailure) String() string {
-	return fmt.Sprintf("%s(unk0=%d, unk1=%d, msg='%s')", m.Token(), m.Unk0, m.Unk1, m.Message)
+	return fmt.Sprintf("%T(msg='%s')", m, m.Message)
 }

@@ -66,6 +66,7 @@ type EvrPipeline struct {
 	leaderboardRegistry *LeaderboardRegistry
 
 	createLobbyMu                    sync.Mutex
+	matchMutexs                      *MatchMutexs
 	broadcasterRegistrationBySession *MapOf[string, *MatchBroadcaster] // sessionID -> MatchBroadcaster
 
 	placeholderEmail string
@@ -106,7 +107,7 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 	leaderboardRegistry := NewLeaderboardRegistry(NewRuntimeGoLogger(logger), nk, config.GetName())
 	profileCache := NewLocalProfileCache(tracker, 60*10)
 	profileRegistry := NewProfileRegistry(nk, db, runtimeLogger, discordRegistry)
-
+	matchMutexs := NewMatchMutexs(matchRegistry)
 	appBot := NewDiscordAppBot(runtimeLogger, nk, db, metrics, pipeline, config, discordRegistry, profileRegistry, dg)
 
 	if disable, ok := vars["DISABLE_DISCORD_BOT"]; ok && disable == "true" {
@@ -171,6 +172,7 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 		profileRegistry:     profileRegistry,
 		profileCache:        profileCache,
 		leaderboardRegistry: leaderboardRegistry,
+		matchMutexs:         matchMutexs,
 
 		broadcasterRegistrationBySession: &MapOf[string, *MatchBroadcaster]{},
 
@@ -270,20 +272,20 @@ func (p *EvrPipeline) ProcessRequestEVR(logger *zap.Logger, session *sessionWS, 
 		pipelineFn = p.lobbyPendingSessionCancel
 
 	// ServerDB service
-	case *evr.BroadcasterRegistrationRequest:
+	case *evr.GameServerRegistrationRequest:
 		requireAuthed = false
 		pipelineFn = p.broadcasterRegistrationRequest
-	case *evr.BroadcasterSessionStarted:
+	case *evr.GameServerSessionStarted:
 		pipelineFn = p.broadcasterSessionStarted
-	case *evr.GameServerJoinAttempt:
+	case *evr.GameServerEntrants:
 		pipelineFn = p.broadcasterPlayerAccept
-	case *evr.BroadcasterPlayerRemoved:
+	case *evr.GameServerEntrantRemoved:
 		pipelineFn = p.broadcasterPlayerRemoved
-	case *evr.BroadcasterPlayerSessionsLocked:
+	case *evr.GameServerSessionLocked:
 		pipelineFn = p.broadcasterPlayerSessionsLocked
-	case *evr.BroadcasterPlayerSessionsUnlocked:
+	case *evr.GameServerSessionUnlocked:
 		pipelineFn = p.broadcasterPlayerSessionsUnlocked
-	case *evr.BroadcasterSessionEnded:
+	case *evr.GameServerSessionEnded:
 		pipelineFn = p.broadcasterSessionEnded
 
 	default:
@@ -295,7 +297,7 @@ func (p *EvrPipeline) ProcessRequestEVR(logger *zap.Logger, session *sessionWS, 
 
 	if idmessage, ok := in.(evr.IdentifyingMessage); ok {
 		// If the message is an identifying message, validate the session and evr id.
-		if err := session.ValidateSession(idmessage.GetSessionID(), idmessage.GetEvrID()); err != nil {
+		if err := session.ValidateSession(idmessage.GetLoginSessionID(), idmessage.GetEvrID()); err != nil {
 			logger.Error("Invalid session", zap.Error(err))
 			// Disconnect the client if the session is invalid.
 			return false

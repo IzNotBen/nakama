@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -50,17 +49,17 @@ func (m LobbyEntrant) Version3() *LobbyEntrantsV3 {
 
 type LobbyEntrantsV0 LobbyEntrant
 
-func (m *LobbyEntrantsV0) Stream(s *EasyStream) error {
+func (m *LobbyEntrantsV0) Stream(s *Stream) error {
 	count := uint64(len(m.EntrantIDs))
 
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &count) },
-		func() error { return s.StreamGuid(&m.LobbyID) },
+		func() error { return s.Stream(&count) },
+		func() error { return s.Stream(&m.LobbyID) },
 		func() error {
-			if s.Mode == DecodeMode {
+			if s.r != nil {
 				m.EntrantIDs = make([]uuid.UUID, count)
 			}
-			return s.StreamGuids(&m.EntrantIDs)
+			return s.Stream(&m.EntrantIDs)
 		},
 	})
 }
@@ -77,12 +76,12 @@ type LobbyEntrantsV3 LobbyEntrant
 
 func (m *LobbyEntrantsV3) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
-		func() error { return s.StreamStruct(&m.EvrID) },
-		func() error { return s.StreamGuid(&m.EntrantID) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk2) },
+		func() error { return s.Stream(&m.Unk0) },
+		func() error { return s.Stream(&m.EvrID) },
+		func() error { return s.Stream(&m.EntrantID) },
+		func() error { return s.Stream(&m.TeamIndex) },
+		func() error { return s.Stream(&m.Unk1) },
+		func() error { return s.Stream(&m.Unk2) },
 	})
 
 }
@@ -97,9 +96,9 @@ type LobbyEntrantsV2 LobbyEntrant
 // Stream streams the message data in/out based on the streaming mode set.
 func (m *LobbyEntrantsV2) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
-		func() error { return s.StreamStruct(&m.EvrID) },
-		func() error { return s.StreamGuid(&m.EntrantID) },
+		func() error { return s.Stream(&m.Unk0) },
+		func() error { return s.Stream(&m.EvrID) },
+		func() error { return s.Stream(&m.EntrantID) },
 	})
 }
 

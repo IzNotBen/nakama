@@ -240,7 +240,7 @@ func (p *EvrPipeline) lobbyFindSessionRequest(ctx context.Context, logger *zap.L
 	p.metrics.CustomCounter("lobbyfindsession_active_count", metricsTags, 1)
 
 	// Check for suspensions on this channel, if this is a request for a public match.
-	if err := p.authorizeMatchmaking(ctx, logger, session, request.LoginSessionID, *ml.GroupID, true); err != nil {
+	if err := p.authorizeMatchmaking(ctx, logger, session, request.LoginSession, *ml.GroupID, true); err != nil {
 		switch status.Code(err) {
 		case codes.Internal:
 			logger.Warn("Failed to authorize matchmaking, allowing player to continue. ", zap.Error(err))

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"encoding/binary"
 	"encoding/json"
 )
 
@@ -29,27 +28,18 @@ type RemoteLogSet struct {
 	Logs     []string
 }
 
-func (m RemoteLogSet) Token() string {
-	return "SNSRemoteLogSetv3"
-}
-
-func (m RemoteLogSet) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
 func (m RemoteLogSet) String() string {
-	return fmt.Sprintf("SNSRemoteLogSetv3 {EvrID=%s,LogLevel=%d, Logs=%d}", m.EvrID.String(), m.LogLevel, len(m.Logs))
+	return fmt.Sprintf("%T(evr_id=%s, level=%d, count=%d)", m, m.EvrID.String(), m.LogLevel, len(m.Logs))
 }
 
 func (m *RemoteLogSet) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk2) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk3) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.LogLevel) },
+		func() error { return s.Stream(&m.EvrID) },
+		func() error { return s.Stream(&m.Unk0) },
+		func() error { return s.Stream(&m.Unk1) },
+		func() error { return s.Stream(&m.Unk2) },
+		func() error { return s.Stream(&m.Unk3) },
+		func() error { return s.StreamLE(&m.LogLevel) },
 		func() error { return s.StreamStringTable(&m.Logs) },
 	})
 }

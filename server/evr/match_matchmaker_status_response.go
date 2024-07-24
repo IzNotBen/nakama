@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 )
 
@@ -20,9 +19,9 @@ func (m *LobbyMatchmakerStatus) Symbol() Symbol {
 }
 
 // Stream streams the message data in/out based on the streaming mode set.
-func (m *LobbyMatchmakerStatus) Stream(s *EasyStream) error {
+func (m *LobbyMatchmakerStatus) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.StatusCode) },
+		func() error { return s.Stream(&m.StatusCode) },
 	})
 }
 

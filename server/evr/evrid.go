@@ -117,7 +117,7 @@ func (id EvrID) IsNil() bool {
 }
 
 func (id EvrID) Valid() bool {
-	return id.PlatformCode > STM && id.PlatformCode < TEN && id.AccountID > 0
+	return id.PlatformCode >= STM && id.PlatformCode <= TEN && id.AccountID > 0
 }
 
 func (id *EvrID) Stream(s *Stream) error {

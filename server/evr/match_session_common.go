@@ -6,7 +6,7 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
-type LobbySessionRequest interface {
+type LobbySessionRequestRequest interface {
 	GetAlignment() int8
 	GetChannel() uuid.UUID
 	GetMode() Symbol

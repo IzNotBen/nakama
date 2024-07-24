@@ -188,26 +188,22 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	groupID := metadata.GetActiveGroupID()
 	// Validate that the user is in the group
 	if groupID == uuid.Nil {
-		// Get a list of the user's guild memberships and set to the largest one
-		memberships, err := p.discordRegistry.GetGuildGroupMemberships(ctx, uid, nil)
-		if err != nil {
-			return settings, fmt.Errorf("failed to get guild groups: %w", err)
-		}
-		if len(memberships) == 0 {
-			return settings, fmt.Errorf("user is not in any guild groups")
-		}
-		// Sort the groups by the edgecount
-		sort.SliceStable(memberships, func(i, j int) bool {
-			return memberships[i].GuildGroup.Size() > memberships[j].GuildGroup.Size()
-		})
-		groupID = memberships[0].GuildGroup.ID()
+		// Get the group ID from the user's profile
+		groupID = profile.GetChannel()
 	}
-
-	config, err := LoadMatchmakingSettings(ctx, p.runtimeModule, userId)
+	// Get a list of the user's guild memberships and set to the largest one
+	memberships, err := p.discordRegistry.GetGuildGroupMemberships(ctx, uid, nil)
 	if err != nil {
-		logger.Warn("Failed to load matchmaking config", zap.Error(err))
+		return settings, fmt.Errorf("failed to get guild groups: %w", err)
 	}
-	verbose := config.Verbose
+	if len(memberships) == 0 {
+		return settings, fmt.Errorf("user is not in any guild groups")
+	}
+	// Sort the groups by the edgecount
+	sort.SliceStable(memberships, func(i, j int) bool {
+		return memberships[i].GuildGroup.Size() > memberships[j].GuildGroup.Size()
+	})
+	groupID = memberships[0].GuildGroup.ID()
 
 	// Initialize the full session
 	if err := session.LoginSession(userId, user.GetUsername(), evrID, deviceId, groupID, flags, verbose); err != nil {
@@ -971,3 +967,76 @@ func (p *EvrPipeline) otherUserProfileRequest(ctx context.Context, logger *zap.L
 	}
 	return nil
 }
+
+/*
+func NewGroupMemberships() {
+
+	// Synchronize the user's groups with the Discord Guilds/Roles
+	memberships, err := p.discordRegistry.UpdateGuildGroupsForUser(ctx, userUUID, p.discordRegistry.GetBot().State.Guilds)
+	if err != nil {
+		logger.Warn("Failed to update guild groups", zap.Error(err))
+	}
+	if len(memberships) == 0 {
+		return settings, fmt.Errorf("user is not in any guilds")
+	}
+
+	// Set channel selections based on the matchmaking URL param (if given)
+	matchmakingChannels := make([]uuid.UUID, 0)
+	for _, gid := range ctx.Value(ctxDiscordGuildIDsKey{}).([]string) {
+		groupID, found := p.discordRegistry.Get(gid)
+		if !found {
+			continue
+		}
+		// Verify that this group is in the user's memberships
+		if !slices.ContainsFunc(memberships, func(m GuildGroupMembership) bool {
+			return m.ChannelID == uuid.FromStringOrNil(groupID)
+		}) {
+			continue
+		}
+		matchmakingChannels = append(matchmakingChannels, uuid.FromStringOrNil(groupID))
+	}
+
+	if len(matchmakingChannels) == 0 {
+		// If no channels were found, use the user's memberships
+		for _, m := range memberships {
+			matchmakingChannels = append(matchmakingChannels, m.ChannelID)
+		}
+	}
+
+	// Sort the channels by the matchmakingChannels order
+	slices.SortStableFunc(memberships, func(a, b ChannelMember) int {
+		// Put suspended channels at the bottom
+		if a.isSuspended && !b.isSuspended {
+			return 1
+		}
+		if !a.isSuspended && b.isSuspended {
+			return -1
+		}
+
+		for _, c := range matchmakingChannels {
+			if a.ChannelID == c {
+				return -1
+			}
+
+			if b.ChannelID == c {
+				return 1
+			}
+		}
+		return 0
+	})
+
+	// Disable matchmaking for any channel that is not in the matchmakingChannels list
+	// Or where the user is suspended.
+	for i, m := range memberships {
+		if !slices.Contains(matchmakingChannels, m.ChannelID) || m.isSuspended {
+			memberships[i].ExcludeFromMatchmaking = true
+		}
+	}
+
+	// Ensure that the user has at least one channel
+	if len(memberships) == 0 {
+		return settings, fmt.Errorf("user is not in any guilds")
+	}
+}
+
+*/

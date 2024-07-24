@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net/http"
 )
@@ -29,10 +28,10 @@ func NewSNSLobbySmiteEntrant(evrID EvrID, statusCode uint64, message string) *SN
 	}
 }
 
-func (m *SNSLobbySmiteEntrant) Stream(s *EasyStream) error {
+func (m *SNSLobbySmiteEntrant) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamStruct(&m.EvrID) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.StatusCode) },
+		func() error { return s.Stream(&m.EvrID) },
+		func() error { return s.Stream(&m.StatusCode) },
 		func() error { return s.StreamNullTerminatedString(&m.Message) },
 	})
 }

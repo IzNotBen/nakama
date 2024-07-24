@@ -33,7 +33,6 @@ import (
 	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
-	"github.com/samber/lo"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -52,6 +51,7 @@ const (
 var (
 	ErrMatchmakingPingTimeout          = status.Errorf(codes.DeadlineExceeded, "Ping timeout")
 	ErrMatchmakingTimeout              = status.Errorf(codes.DeadlineExceeded, "Matchmaking timeout")
+	ErrMatchmakingPartyChanged         = status.Errorf(codes.Aborted, "Party changed")
 	ErrMatchmakingNoAvailableServers   = status.Errorf(codes.Unavailable, "No available servers")
 	ErrMatchmakingCanceled             = status.Errorf(codes.Canceled, "Matchmaking canceled")
 	ErrMatchmakingCanceledByPlayer     = status.Errorf(codes.Canceled, "Matchmaking canceled by player")
@@ -219,7 +219,7 @@ func (s *MatchmakingSession) Context() context.Context {
 type MatchmakingResult struct {
 	err     error
 	Message string
-	Code    evr.LobbySessionFailureErrorCode
+	Code    evr.LobbySessionErrorCode
 	Mode    evr.Symbol
 	Channel uuid.UUID
 	Logger  *zap.Logger
@@ -252,8 +252,10 @@ func (mr *MatchmakingResult) SetErrorFromStatus(err error) *MatchmakingResult {
 }
 
 // determineErrorCode maps grpc status codes to evr lobby session failure codes
-func determineErrorCode(code codes.Code) evr.LobbySessionFailureErrorCode {
+func determineErrorCode(code codes.Code) evr.LobbySessionErrorCode {
 	switch code {
+	case codes.Aborted:
+		return evr.LobbySessionFailure_KickedFromLobbyGroup
 	case codes.DeadlineExceeded:
 		return evr.LobbySessionFailure_Timeout0
 	case codes.InvalidArgument:
@@ -332,12 +334,13 @@ func NewMatchmakingRegistry(logger *zap.Logger, matchRegistry MatchRegistry, mat
 }
 
 type MatchmakingSettings struct {
-	BackfillQueryAddon   string   `json:"backfill_query_addon"`  // Additional query to add to the matchmaking query
-	CreateQueryAddon     string   `json:"create_query_addon"`    // Additional query to add to the matchmaking query
-	GroupID              string   `json:"group_id"`              // Group ID to matchmake with
-	PriorityBroadcasters []string `json:"priority_broadcasters"` // Prioritize these broadcasters
-	NextMatchID          MatchID  `json:"next_match_id"`         // Try to join this match immediately when finding a match
-	Verbose              bool     `json:"verbose"`               // Send the user verbose messages via discord
+	BackfillQueryAddon        string   `json:"backfill_query_addon"`        // Additional query to add to the matchmaking query
+	CreateQueryAddon          string   `json:"create_query_addon"`          // Additional query to add to the matchmaking query
+	GroupID                   string   `json:"group_id"`                    // Group ID to matchmake with
+	PriorityBroadcasters      []string `json:"priority_broadcasters"`       // Prioritize these broadcasters
+	NextMatchID               MatchID  `json:"next_match_id"`               // Try to join this match immediately when finding a match
+	Verbose                   bool     `json:"verbose"`                     // Send the user verbose messages via discord
+	DisableMatchmakerBackfill bool     `json:"disable_matchmaker_backfill"` // Disable backfilling from buildMatch
 }
 
 func (MatchmakingSettings) GetStorageID() StorageID {
@@ -378,42 +381,36 @@ func (mr *MatchmakingRegistry) matchedEntriesFn(entries [][]*MatchmakerEntry) {
 	}
 }
 
-func (mr *MatchmakingRegistry) listUnfilledLobbies(ctx context.Context, logger *zap.Logger, searchLabel *EvrMatchState, minCount int) ([]*EvrMatchState, string, error) {
-	var err error
-	var query string
-
-	var labels []*EvrMatchState
-
-	if searchLabel.LobbyType != PublicLobby {
-		// Do not backfill for private lobbies
-		return nil, "", status.Errorf(codes.InvalidArgument, "Cannot backfill private lobbies")
-	}
-
-	// TODO Move this into the matchmaking registry
-	query = buildMatchQueryFromLabel(searchLabel)
+func (mr *MatchmakingRegistry) listUnfilledLobbies(ctx context.Context, logger *zap.Logger, mode evr.Symbol, groupID uuid.UUID) ([]*EvrMatchState, string, error) {
 
 	// Basic search defaults
+	query := fmt.Sprintf("+label.open:T +label.lobby_type:public +label.mode:%s +label.group_id:%s", mode.String(), groupID.String())
 
-	minSize := 0
-	limit := 100
-	maxSize := MatchMaxSize - minCount
 	logger = logger.With(zap.String("query", query))
 
-	// Search for possible matches
 	logger.Debug("Searching for matches", zap.String("query", query))
+
+	maxSize := MatchMaxSize - 1
+	minSize := 1
+	limit := 100
 	matches, err := mr.listMatches(ctx, limit, minSize+1, maxSize+1, query)
 	if err != nil {
 		return nil, "", status.Errorf(codes.Internal, "Failed to find matches: %v", err)
 	}
 
 	// Create a label slice of the matches
-	labels = make([]*EvrMatchState, 0, len(matches))
+	labels := make([]*EvrMatchState, 0, len(matches))
 	for _, match := range matches {
 		label := &EvrMatchState{}
 		if err := json.Unmarshal([]byte(match.GetLabel().GetValue()), label); err != nil {
 			logger.Error("Error unmarshalling match label", zap.Error(err))
 			continue
 		}
+
+		if label.PlayerCount <= label.PlayerLimit-1 {
+			continue
+		}
+
 		labels = append(labels, label)
 	}
 
@@ -502,12 +499,25 @@ func selectGameServer() {
 		})
 	}
 */
+
+type MatchmakingParty struct {
+	PartyID string
+	Members []*MatchmakerEntry
+}
+
 func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config MatchmakingSettings) {
 	logger := mr.logger.With(zap.Int("entrants", len(entrants)))
 
 	logger.Debug("Building match", zap.Any("entrants", entrants))
 
-	// Use the properties from the first entrant to get the channel
+	// Get a map of all broadcasters by their key
+	broadcastersByExtIP := make(map[string]evr.Endpoint, 100)
+	mr.evrPipeline.broadcasterRegistrationBySession.Range(func(_ string, v *MatchBroadcaster) bool {
+		broadcastersByExtIP[v.Endpoint.GetExternalIP()] = v.Endpoint
+		return true
+	})
+
+	// Ensure that all the entrants have the same channel
 	channels := make([]uuid.UUID, 0, len(entrants))
 	for _, e := range entrants {
 		channel := uuid.FromStringOrNil(e.StringProperties["channel"])
@@ -518,13 +528,12 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 	}
 
 	channels = CompactedFrequencySort(channels, true)
-
-	// Get a map of all broadcasters by their key
-	broadcastersByExtIP := make(map[string]evr.Endpoint, 100)
-	mr.evrPipeline.broadcasterRegistrationBySession.Range(func(_ string, v *MatchBroadcaster) bool {
-		broadcastersByExtIP[v.Endpoint.GetExternalIP()] = v.Endpoint
-		return true
-	})
+	if len(channels) == 0 {
+		logger.Error("No channels found")
+	}
+	if len(channels) > 1 {
+		logger.Error("Multiple channels found", zap.Any("channels", channels))
+	}
 
 	// Create a map of each endpoint and it's latencies to each entrant
 	latencies := make(map[string][]int, 100)
@@ -540,34 +549,28 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 		}
 	}
 
-	// Score each endpoint based on the latencies
-	scored := make(map[string]int, len(latencies))
-	for k, v := range latencies {
-		// Sort the latencies
-		sort.Ints(v)
-		// Get the average
-		average := 0
-		for _, i := range v {
-			average += i
-		}
-		average /= len(v)
-		scored[k] = average
-	}
-	// Sort the scored endpoints
-	sorted := make([]string, 0, len(scored))
-	for k := range scored {
-		sorted = append(sorted, k)
-	}
-	sort.SliceStable(sorted, func(i, j int) bool {
-		return scored[sorted[i]] < scored[sorted[j]]
-	})
+	preferredServers := scoreServers(latencies)
 
-	parties := make(map[string][]*MatchmakerEntry, 8)
+	partyMap := make(map[string]MatchmakingParty, 0)
 	for _, e := range entrants {
-		id := e.GetPartyId()
-		parties[id] = append(parties[id], e)
+		partyID := e.GetPartyId()
+		p, ok := partyMap[partyID]
+		if !ok {
+			partyMap[partyID] = MatchmakingParty{
+				PartyID: partyID,
+				Members: make([]*MatchmakerEntry, 0),
+			}
+		}
+		p.Members = append(p.Members, e)
 	}
+
+	parties := make([]MatchmakingParty, 0, len(partyMap))
+	for _, p := range partyMap {
+		parties = append(parties, p)
+	}
+
 	logger.Debug("Parties", zap.Any("parties", parties))
+
 	// Get the ml from the first participant
 	var ml *EvrMatchState
 
@@ -582,61 +585,7 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 		return // No label found
 	}
 
-	// Try to backfill matches with parties
-	var backfillMatches []*EvrMatchState
-	backfillMatches, _, err := mr.listUnfilledLobbies(mr.ctx, logger, ml, 1)
-	if err != nil {
-		logger.Error("Failed to list unfilled lobbies", zap.Error(err))
-		return
-	}
-
-	for partyID, party := range parties {
-		partySize := len(party)
-
-		for _, m := range backfillMatches {
-			if m.PlayerLimit-m.PlayerCount < partySize {
-				continue
-			}
-			/*
-				// Make sure adding these players makes the teams the same size
-				if (m.PlayerCount+partySize)%2 != 0 {
-					continue
-				}
-			*/
-			logger.Info("Backfilling party into match", zap.String("matchID", m.ID.String()), zap.String("partyID", partyID), zap.Any("party", party))
-
-			// Add the party to the match
-			for _, e := range party {
-				logger = logger.With(zap.String("sessionID", e.Presence.SessionID.String()), zap.String("partyID", partyID), zap.String("matchID", m.ID.String()), zap.String("uid", e.Presence.GetUserId()))
-				// Remove the player from the entrants list
-				for j, e2 := range entrants {
-					if e2.Presence.SessionID == e.Presence.SessionID {
-						entrants = append(entrants[:j], entrants[j+1:]...)
-						break
-					}
-				}
-
-				s, ok := mr.GetMatchingBySessionId(e.Presence.SessionID)
-				if !ok {
-					logger.Warn("Could not find matching session for user", zap.String("sessionID", e.Presence.SessionID.String()))
-					continue
-				}
-
-				// Join the players to the match
-				if err := mr.evrPipeline.JoinEvrMatch(s.Ctx, s.Logger, s.Session, "", m.ID, int(AnyTeam)); err != nil {
-					logger.Error("Error joining player to match", zap.Error(err))
-				}
-			}
-
-			// Remove the party from the party list
-			delete(parties, partyID)
-			// Set the backfill match size to the new size
-			m.PlayerCount += partySize
-
-		}
-	}
-
-	teams := distributeParties(lo.Values(parties))
+	teams := distributeParties(parties)
 	if len(teams) != 2 {
 		logger.Error("Invalid number of teams", zap.Int("teams", len(teams)))
 		return
@@ -682,7 +631,7 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 
 	for {
 		var err error
-		matchID, err = mr.allocateBroadcaster(channels, config, sorted, ml)
+		matchID, err = mr.allocateBroadcaster(channels, config, preferredServers, ml)
 		if err != nil {
 			mr.logger.Warn("Error allocating broadcaster", zap.Error(err))
 		}
@@ -744,7 +693,7 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 	}
 }
 
-func distributeParties(parties [][]*MatchmakerEntry) [][]*MatchmakerEntry {
+func distributeParties(parties []MatchmakingParty) [][]*MatchmakerEntry {
 	// Distribute the players from each party on the two teams.
 	// Try to keep the parties together, but the teams must be balanced.
 	// The algorithm is greedy and may not always produce the best result.
@@ -753,10 +702,10 @@ func distributeParties(parties [][]*MatchmakerEntry) [][]*MatchmakerEntry {
 
 	// Sort the parties by size, single players last
 	sort.SliceStable(parties, func(i, j int) bool {
-		if len(parties[i]) == 1 {
+		if len(parties[i].Members) == 1 {
 			return false
 		}
-		return len(parties[i]) < len(parties[j])
+		return len(parties[i].Members) < len(parties[j].Members)
 	})
 
 	// Distribute the parties to the teams
@@ -768,7 +717,7 @@ func distributeParties(parties [][]*MatchmakerEntry) [][]*MatchmakerEntry {
 				team = i
 			}
 		}
-		teams[team] = append(teams[team], party...)
+		teams[team] = append(teams[team], party.Members...)
 	}
 	// sort the teams by size
 	sort.SliceStable(teams, func(i, j int) bool {
@@ -785,6 +734,80 @@ func distributeParties(parties [][]*MatchmakerEntry) [][]*MatchmakerEntry {
 	}
 
 	return teams
+}
+
+func (mr *MatchmakingRegistry) backfillPartiesIntoMatches(ctx context.Context, logger *zap.Logger, parties []MatchmakingParty, backfillMatches []*EvrMatchState) []MatchmakingParty {
+
+	// Sort the backfill matches by party size
+	slices.SortStableFunc(parties, func(a, b MatchmakingParty) int {
+		return len(a.Members) - len(b.Members)
+	})
+
+	slices.Reverse(parties)
+
+	// Sort the backfill matches by their available player count
+	slices.SortStableFunc(backfillMatches, func(a, b *EvrMatchState) int {
+		return a.PlayerLimit - a.PlayerCount - (b.PlayerLimit - b.PlayerCount)
+	})
+
+	for _, l := range backfillMatches {
+		for i, p := range parties {
+			if l.PlayerLimit-l.PlayerCount < len(p.Members) {
+				continue
+			}
+
+			logger.Info("Backfilling party into match", zap.String("matchID", l.ID.String()), zap.String("partyID", p.PartyID), zap.Any("party", p))
+
+			// Add the party to the match
+			for _, m := range p.Members {
+				logger = logger.With(zap.String("sessionID", m.Presence.SessionID.String()), zap.String("partyID", p.PartyID), zap.String("matchID", l.ID.String()), zap.String("uid", m.Presence.GetUserId()))
+				// Remove the player from the entrants list
+
+				s, ok := mr.GetMatchingBySessionId(m.Presence.SessionID)
+				if !ok {
+					logger.Warn("Could not find matching session for user", zap.String("sessionID", m.Presence.SessionID.String()))
+					continue
+				}
+
+				// Join the players to the match
+				if err := mr.evrPipeline.JoinEvrMatch(s.Ctx, s.Logger, s.Session, "", l.ID, int(AnyTeam)); err != nil {
+					logger.Error("Error joining player to match", zap.Error(err))
+				}
+			}
+			// Set the backfill match size to the new size
+			l.PlayerCount += len(p.Members)
+
+			// Remove the party from the party list
+			parties = append(parties[:i], parties[i+1:]...)
+
+		}
+	}
+	return parties
+}
+
+func scoreServers(latencies map[string][]int) []string {
+	// Score each endpoint based on the latencies
+	scored := make(map[string]int, len(latencies))
+	for k, v := range latencies {
+		// Sort the latencies
+		sort.Ints(v)
+		// Get the average
+		average := 0
+		for _, i := range v {
+			average += i
+		}
+		average /= len(v)
+		scored[k] = average
+	}
+	// Sort the scored endpoints
+	sorted := make([]string, 0, len(scored))
+	for k := range scored {
+		sorted = append(sorted, k)
+	}
+	slices.SortStableFunc(sorted, func(a, b string) int {
+		return scored[a] - scored[b]
+	})
+	return sorted
 }
 
 func (mr *MatchmakingRegistry) allocateBroadcaster(channels []uuid.UUID, config MatchmakingSettings, sorted []string, label *EvrMatchState) (MatchID, error) {
@@ -954,9 +977,8 @@ func (m *MatchmakingSession) GetPingCandidates(endpoints ...evr.Endpoint) (candi
 
 	return candidates
 }
-func JoinPartyGroup(session *sessionWS, groupID string) (*PartyGroup, error) {
+func JoinPartyGroup(session *sessionWS, groupID string, partyID uuid.UUID) (*PartyGroup, error) {
 
-	partyID := uuid.NewV5(uuid.Nil, groupID)
 	partyRegistry := session.pipeline.partyRegistry.(*LocalPartyRegistry)
 	node := session.pipeline.node
 

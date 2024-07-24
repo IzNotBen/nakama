@@ -48,7 +48,7 @@ func (p *EvrPipeline) ListUnassignedLobbies(ctx context.Context, session *sessio
 	// Add each hosted channel as a SHOULD, with decreasing boost
 
 	for i, channel := range ml.Broadcaster.GroupIDs {
-		qparts = append(qparts, Channel(channel).Query(Should, len(ml.Broadcaster.GroupIDs)-i))
+		qparts = append(qparts, GroupID(channel).Query(Should, len(ml.Broadcaster.GroupIDs)-i))
 	}
 
 	// Add the regions in descending order of priority
@@ -120,16 +120,38 @@ type LabelLatencies struct {
 	latency *LatencyMetric
 }
 
-// Backfill returns a match that the player can backfill
-func (p *EvrPipeline) Backfill(ctx context.Context, session *sessionWS, msession *MatchmakingSession, minCount int, limit int) ([]*EvrMatchState, string, error) {
+func (p *EvrPipeline) Backfill(ctx context.Context, session *sessionWS, msession *MatchmakingSession) ([]*EvrMatchState, string, error) {
 
 	logger := msession.Logger
-	candidates, query, err := p.matchmakingRegistry.listUnfilledLobbies(ctx, logger, msession.Label, minCount)
+
+	mode := msession.Label.Mode
+	groupID := *msession.Label.GroupID
+
+	labels, query, err := p.matchmakingRegistry.listUnfilledLobbies(ctx, logger, mode, groupID)
 	if err != nil {
 		return nil, query, err
+
 	}
-	if len(candidates) == 0 {
+	if len(labels) == 0 {
 		return nil, query, nil
+	}
+	partySize := 1
+	if msession.Party != nil {
+		partySize = msession.Party.Size()
+	}
+
+	candidates := make([]*EvrMatchState, 0)
+	isPlayer := msession.Label.TeamIndex != Spectator && msession.Label.TeamIndex != Moderator
+	for _, label := range labels {
+		if isPlayer {
+			if label.GetAvailablePlayerSlots() < partySize {
+				continue
+			}
+		} else if label.GetAvailableNonPlayerSlots() < partySize {
+			continue
+		}
+
+		candidates = append(candidates, label)
 	}
 
 	endpoints := make([]evr.Endpoint, 0, len(candidates))
@@ -144,7 +166,7 @@ func (p *EvrPipeline) Backfill(ctx context.Context, session *sessionWS, msession
 	}
 
 	labelLatencies := make([]LabelLatencies, 0, len(candidates))
-	for _, label := range candidates {
+	for _, label := range labels {
 		for _, latency := range latencies {
 			if label.Broadcaster.Endpoint.GetExternalIP() == latency.Endpoint.GetExternalIP() {
 				labelLatencies = append(labelLatencies, LabelLatencies{label, &latency})
@@ -165,67 +187,8 @@ func (p *EvrPipeline) Backfill(ctx context.Context, session *sessionWS, msession
 		return sortFn(labelLatencies[i].latency.RTT, labelLatencies[j].latency.RTT, labelLatencies[i].label.PlayerCount, labelLatencies[j].label.PlayerCount)
 	})
 
-	options := make([]*EvrMatchState, 0, limit)
-	// Select the first match
-	for _, label := range candidates {
-		// Check that the match is not full
-		logger = logger.With(zap.String("mid", label.ID.String()))
-
-		match, _, err := p.matchRegistry.GetMatch(ctx, label.ID.String())
-		if err != nil {
-			logger.Debug("Failed to get match: %s", zap.Error(err))
-			continue
-		}
-
-		isPlayer := msession.Label.TeamIndex != Spectator && msession.Label.TeamIndex != Moderator
-		if ok, err := checkMatchForBackfill(match, minCount, isPlayer); err != nil {
-			logger.Debug("Failed to check match for backfill", zap.Error(err))
-			continue
-		} else if !ok {
-			continue
-		}
-		options = append(options, label)
-		if len(options) >= limit {
-			break
-		}
-	}
-
-	return options, query, nil
+	return candidates, query, nil
 }
-
-func checkMatchForBackfill(match *api.Match, minCount int, isPlayer bool) (ok bool, err error) {
-
-	if match == nil {
-		return false, fmt.Errorf("match is nil")
-	}
-
-	label := &EvrMatchState{}
-	// Extract the latest label
-	if err := json.Unmarshal([]byte(match.GetLabel().GetValue()), label); err != nil {
-		return false, fmt.Errorf("failed to get match label: %w", err)
-	}
-
-	if match.GetSize()-1 >= int32(label.MaxSize) { // -1 for the broadcaster
-		return false, nil
-	}
-
-	if !isPlayer {
-		return true, nil
-	}
-
-	if (label.PlayerLimit - label.PlayerCount) < minCount {
-		return false, nil
-	}
-
-	/*
-		if label.Mode == evr.ModeCombatPublic && (label.PlayerCount+minCount)%2 != 0 {
-			return false, nil
-		}
-	*/
-	return true, nil
-}
-
-// TODO FIXME Create a broadcaster registry
 
 type BroadcasterLatencies struct {
 	Endpoint evr.Endpoint
@@ -328,62 +291,6 @@ func (p *EvrPipeline) MatchMake(session *sessionWS, msession *MatchmakingSession
 // Wrapper for the matchRegistry.ListMatches function.
 func listMatches(ctx context.Context, p *EvrPipeline, limit int, minSize int, maxSize int, query string) ([]*api.Match, error) {
 	return p.runtimeModule.MatchList(ctx, limit, true, "", &minSize, &maxSize, query)
-}
-
-func buildMatchQueryFromLabel(ml *EvrMatchState) string {
-	var boost int = 0 // Default booster
-
-	qparts := []string{
-		// MUST be an open lobby
-		OpenLobby.Query(Must, boost),
-		// MUST be the same lobby type
-		LobbyType(ml.LobbyType).Query(Must, boost),
-		// MUST be the same mode
-		GameMode(ml.Mode).Query(Must, boost),
-		"+label.open:T",
-	}
-
-	if ml.TeamIndex != Spectator && ml.TeamIndex != Moderator {
-		// MUST have room for this party on the teams
-		qparts = append(qparts, fmt.Sprintf("+label.player_count:<=%d", ml.PlayerCount))
-	}
-
-	// MUST NOT much into the same lobby
-	if ml.ID.UUID() != uuid.Nil {
-		qparts = append(qparts, MatchId(ml.ID.UUID()).Query(MustNot, boost))
-	}
-
-	// MUST be a broadcaster on a channel the user has access to
-	if len(ml.Broadcaster.GroupIDs) != 0 {
-		qparts = append(qparts, Channels(ml.Broadcaster.GroupIDs).Query(Must, 0))
-	}
-
-	// SHOULD Add the current channel as a high boost SHOULD
-	if *ml.GroupID != uuid.Nil {
-		qparts = append(qparts, Channel(*ml.GroupID).Query(Should, 3))
-	}
-
-	switch len(ml.Broadcaster.Regions) {
-	case 0:
-		// If no regions are specified, use default
-		qparts = append(qparts, Region(evr.Symbol(0)).Query(Must, 2))
-	case 1:
-		// If only one region is specified, use it as a MUST
-		qparts = append(qparts, Region(ml.Broadcaster.Regions[0]).Query(Must, 2))
-	default:
-		// If multiple regions are specified, use the first as a MUST and the rest as SHOULD
-		qparts = append(qparts, Region(ml.Broadcaster.Regions[0]).Query(Must, 2))
-		for _, r := range ml.Broadcaster.Regions[1:] {
-			qparts = append(qparts, Region(r).Query(Should, 2))
-		}
-	}
-
-	for _, r := range ml.Broadcaster.Regions {
-		qparts = append(qparts, Region(r).Query(Should, 2))
-	}
-
-	// Setup the query and logger
-	return strings.Join(qparts, " ")
 }
 
 // mroundRTT rounds the rtt to the nearest modulus
@@ -522,7 +429,16 @@ func (p *EvrPipeline) MatchCreate(ctx context.Context, session *sessionWS, msess
 	return matchID, nil
 }
 
-// JoinEvrMatch allows a player to join a match.
+func (p *EvrPipeline) JoinEvrMatchParty(ctx context.Context, logger *zap.Logger, matchID MatchID, presences []*EvrMatchPresence) error {
+	// This will atomically join the party to the match
+	label, presence, _, err := EVRMatchJoinAttempt(ctx, logger, matchID, p.sessionRegistry, p.matchRegistry, p.tracker, mp)
+	if err != nil {
+		return fmt.Errorf("failed to join match: %w", err)
+	}
+}
+
+
+	// JoinEvrMatch allows a player to join a match.
 func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, session *sessionWS, query string, matchID MatchID, teamIndex int) error {
 	// Append the node to the matchID if it doesn't already contain one.
 
@@ -535,63 +451,6 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 	msession, ok := p.matchmakingRegistry.GetMatchingBySessionId(session.ID())
 	if ok && msession != nil && msession.Party != nil {
 		partyID = msession.Party.ID()
-	}
-
-	// Determine the display name
-	displayName, err := SetDisplayNameByChannelBySession(ctx, p.runtimeModule, logger, p.discordRegistry, session, label.GetGroupID().String())
-	if err != nil {
-		logger.Warn("Failed to set display name.", zap.Error(err))
-	}
-
-	// Set the profile's display name.
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
-	if !ok {
-		return fmt.Errorf("failed to get evrID from session context")
-	}
-
-	loginSession, ok := ctx.Value(ctxLoginSessionKey{}).(*sessionWS)
-	if !ok {
-		return fmt.Errorf("failed to get login session from session context")
-	}
-
-	profile, found := p.profileRegistry.Load(session.UserID(), evrID)
-	if !found {
-		defer session.Close("profile not found", runtime.PresenceReasonUnknown)
-		return fmt.Errorf("profile not found: %s", session.UserID())
-	}
-
-	profile.UpdateDisplayName(displayName)
-	profile.SetEvrID(evrID)
-
-	// Get the most recent past thursday
-	serverProfile := profile.GetServer()
-
-	for t := range serverProfile.Statistics {
-		if t == "arena" || t == "combat" {
-			continue
-		}
-		if strings.HasPrefix(t, "daily_") {
-			// Parse the date
-			date, err := time.Parse("2006_01_02", strings.TrimPrefix(t, "daily_"))
-			// Keep anything less than 48 hours old
-			if err == nil && time.Since(date) < 48*time.Hour {
-				continue
-			}
-		} else if strings.HasPrefix(t, "weekly_") {
-			// Parse the date
-			date, err := time.Parse("2006_01_02", strings.TrimPrefix(t, "weekly_"))
-			// Keep anything less than 2 weeks old
-			if err == nil && time.Since(date) < 14*24*time.Hour {
-				continue
-			}
-		}
-		delete(serverProfile.Statistics, t)
-	}
-
-	// Add the user's profile to the cache (by EvrID)
-	err = p.profileCache.Add(matchID, evrID, serverProfile)
-	if err != nil {
-		logger.Warn("Failed to add profile to cache", zap.Error(err))
 	}
 
 	// Prepare the player session metadata.
@@ -617,7 +476,10 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 		ClientPort:     session.clientPort,
 	}
 
-	var presence *EvrMatchPresence
+	return mp
+}
+
+
 	logger.Debug("Joining match", zap.String("mid", matchID.UUID().String()))
 	label, presence, _, err = EVRMatchJoinAttempt(ctx, logger, matchID, p.sessionRegistry, p.matchRegistry, p.tracker, mp)
 	if err != nil {
@@ -1030,20 +892,16 @@ func (p *EvrPipeline) MatchSpectateStreamLoop(session *sessionWS, msession *Matc
 	}
 }
 
-func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *MatchmakingSession, skipDelay bool, create bool, minCount int) error {
+func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *MatchmakingSession) error {
 	logger := msession.Logger
 	ctx := msession.Context()
 
 	// Wait for at least 1 interval before starting to look for a backfill.
 	// This gives the matchmaker a chance to find a full ideal match
-	interval := p.config.GetMatchmaker().IntervalSec
-	idealMatchIntervals := p.config.GetMatchmaker().RevThreshold
-	backfillDelay := time.Duration(interval*idealMatchIntervals) * time.Second
+	// interval := p.config.GetMatchmaker().IntervalSec
+	//idealMatchIntervals := p.config.GetMatchmaker().RevThreshold
+	//backfillDelay := time.Duration(interval*idealMatchIntervals) * time.Second
 
-	if !skipDelay {
-		<-time.After(backfillDelay)
-	}
-	limit := 5
 	delayStartTimer := time.NewTimer(100 * time.Millisecond)
 	retryTicker := time.NewTicker(4 * time.Second)
 	createTicker := time.NewTicker(6 * time.Second)
@@ -1057,8 +915,9 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 		case <-delayStartTimer.C:
 		case <-retryTicker.C:
 		}
+
 		// Backfill any existing matches
-		labels, query, err := p.Backfill(ctx, session, msession, minCount, limit)
+		labels, query, err := p.Backfill(ctx, session, msession)
 		if err != nil {
 			return msession.Cancel(fmt.Errorf("failed to find backfill match: %w", err))
 		}
@@ -1072,14 +931,35 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 				return nil
 			default:
 			}
+			// Lock the match
+			p.matchMutexs.Get(label.ID.UUID().String()).Lock()
+			// Get the latest match state
+			label, err := MatchLabelByID(ctx, p.runtimeModule, label.ID)
+			if err != nil {
+				p.matchMutexs.Get(label.ID.UUID().String()).Unlock()
+				return msession.Cancel(fmt.Errorf("failed to get match label: %w", err))
+			}
+			if label.GetAvailablePlayerSlots() < msession.Party.Size() {
+				p.matchMutexs.Get(label.ID.UUID().String()).Unlock()
+				continue
+			}
 
 			p.metrics.CustomCounter("match_backfill_found_count", msession.metricsTags(), 1)
 			logger.Debug("Attempting to backfill match", zap.String("mid", label.ID.UUID().String()))
 
-			if err := p.JoinEvrMatch(ctx, logger, session, query, label.ID, evr.TeamUnassigned); err != nil {
-				logger.Warn("Failed to backfill match", zap.Error(err))
-				continue
+			// Join all the party members to the match
+			for _, presence := range msession.Party.GetMembers() {
+				ms, ok := p.matchmakingRegistry.GetMatchingBySessionId(presence.SessionID)
+				if !ok {
+					logger.Debug("Session not found in matchmaking registry", zap.String("sid", presence.SessionID.String()))
+					continue
+				}
+				if err := p.JoinEvrMatch(ctx, ms.Logger, ms.Session, query, label.ID, evr.TeamUnassigned); err != nil {
+					msession.Logger.Warn("Failed to backfill match", zap.Error(err))
+					continue
+				}
 			}
+
 			// If the backfill was successful, stop the backfill loop
 			return nil
 		}
@@ -1172,22 +1052,6 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 		logger.Error("Failed to load matchmaking config", zap.Error(err))
 	}
 
-	// Join party
-	if config.GroupID != "" {
-		msession.Party, err = JoinPartyGroup(session, config.GroupID)
-		if err != nil {
-			logger.Warn("Failed to join party group", zap.String("group_id", config.GroupID), zap.Error(err))
-		} else {
-
-			logger.Debug("Joined party", zap.String("party_id", msession.Party.ID().String()), zap.Any("members", msession.Party.GetMembers()))
-
-			if leader := msession.Party.GetLeader(); leader != nil && leader.SessionId != session.id.String() {
-				// Delay to allow the leader to end up in a social lobby
-				//<-time.After(3 * time.Second)
-			}
-		}
-	}
-
 	var matchID MatchID
 	// Check for a direct match first
 	if !config.NextMatchID.IsNil() {
@@ -1227,6 +1091,7 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 	logger = msession.Logger
 
 	skipBackfillDelay := false
+
 	if ml.TeamIndex == TeamIndex(evr.TeamModerator) {
 		skipBackfillDelay = true
 		// Check that the user is a moderator for this channel, or globally
@@ -1235,7 +1100,7 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 			logger.Warn("failed to get guild: %v", zap.Error(err))
 			ml.TeamIndex = TeamIndex(evr.TeamSpectator)
 		} else {
-			discordID, err := p.discordRegistry.GetDiscordIdByUserId(parentCtx, session.userID)
+			discordID, err := GetDiscordIDByUserID(parentCtx, p.db, session.userID.String())
 			if err != nil {
 				return fmt.Errorf("failed to get discord id: %v", err)
 			}
@@ -1244,6 +1109,7 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 			}
 		}
 	}
+
 	if ml.TeamIndex == TeamIndex(evr.TeamSpectator) {
 		skipBackfillDelay = true
 		if ml.Mode != evr.ModeArenaPublic && ml.Mode != evr.ModeCombatPublic {
@@ -1255,13 +1121,93 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 		return nil
 	}
 
+	// Join party
+
+	partyGroupID := session.UserID().String()
+	if config.GroupID != "" {
+		partyGroupID = config.GroupID
+	}
+
+	partyID := uuid.NewV5(uuid.Nil, partyGroupID)
+	if config.GroupID != "" {
+
+		msession.Party, err = JoinPartyGroup(session, partyGroupID, partyID)
+		if err != nil {
+			logger.Warn("Failed to join party group", zap.String("group_id", config.GroupID), zap.Error(err))
+		} else {
+			logger.Debug("Joined party", zap.String("party_id", msession.Party.ID().String()), zap.Any("members", msession.Party.GetMembers()))
+			logger = logger.With(zap.String("party_id", msession.Party.ID().String()))
+		}
+	}
+
+	// Only the leader is allowed to matchmake
+	if msession.Party == nil || msession.Party.IsLeader() {
+
+		go p.MatchBackfillLoop(session, msession)
+
+		// Put a ticket in for matching
+		_, err := p.MatchMake(session, msession)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Set a timeout for the party leader to start matchmaking
+		timeout := time.After(30 * time.Second)
+		originalLeaderID := msession.Party.GetLeader().GetSessionId()
+		for {
+			select {
+			case <-msession.Ctx.Done():
+				return nil
+			case <-timeout:
+			case <-time.After(1 * time.Second):
+				// Check if this player is not the leader
+				if msession.Party.GetLeader().GetSessionId() != originalLeaderID {
+					// Cancel matchmaking
+					msession.Cancel(ErrMatchmakingPartyChanged)
+				}
+			}
+		}
+	}
+
 	switch ml.Mode {
 	// For public matches, backfill or matchmake
 	// If it's a social match, backfill or create immediately
 	case evr.ModeSocialPublic:
 		// Continue to try to backfill
-		skipBackfillDelay = true
-		go p.MatchBackfillLoop(session, msession, skipBackfillDelay, true, 1)
+
+		go p.MatchBackfillLoop(session, msession, true, 1)
+
+	case evr.ModeArenaPublic:
+
+		// Only the leader is allowed to matchmaking
+		if msession.Party == nil || msession.Party.IsLeader() {
+
+			// Don't backfill party members, let the matchmaker handle it.
+			go p.MatchBackfillLoop(session, msession, false)
+
+			// Put a ticket in for matching
+			_, err := p.MatchMake(session, msession)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Set a timeout for the party leader to start matchmaking
+			timeout := time.After(30 * time.Second)
+			originalLeaderID := msession.Party.GetLeader().GetSessionId()
+			for {
+				select {
+				case <-msession.Ctx.Done():
+					return nil
+				case <-timeout:
+				case <-time.After(1 * time.Second):
+					// Check if this player is not the leader
+					if msession.Party.GetLeader().GetSessionId() != originalLeaderID {
+						// Cancel matchmaking
+						msession.Cancel(ErrMatchmakingPartyChanged)
+					}
+				}
+			}
+		}
 
 		// For public arena/combat matches, backfill while matchmaking
 	case evr.ModeCombatPublic:
@@ -1353,28 +1299,14 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 		// Join any on-going combat match without delay
 		skipBackfillDelay = false
 		// Start the backfill loop, if the player is not in a party.
-		if msession.Party == nil || len(msession.Party.GetMembers()) == 1 {
-			go p.MatchBackfillLoop(session, msession, skipBackfillDelay, false, 1)
-		}
+		go p.MatchBackfillLoop(session, msession, skipBackfillDelay, false, 1)
+
 		// Put a ticket in for matching
 		_, err = p.MatchMake(session, msession)
 		if err != nil {
 			return err
 		}
 
-	case evr.ModeArenaPublic:
-
-		// Start the backfill loop, if the player is not in a party.
-		if msession.Party == nil || len(msession.Party.GetMembers()) == 1 {
-			// Don't backfill party members, let the matchmaker handle it.
-			go p.MatchBackfillLoop(session, msession, skipBackfillDelay, false, 1)
-		}
-
-		// Put a ticket in for matching
-		_, err := p.MatchMake(session, msession)
-		if err != nil {
-			return err
-		}
 	default:
 		return status.Errorf(codes.InvalidArgument, "invalid mode")
 	}

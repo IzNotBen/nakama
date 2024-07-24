@@ -12,7 +12,7 @@ func (m *STcpConnectionUnrequireEvent) Symbol() Symbol {
 	return SymbolOf(m)
 }
 
-func (m *STcpConnectionUnrequireEvent) Stream(s *EasyStream) error {
+func (m *STcpConnectionUnrequireEvent) Stream(s *Stream) error {
 	return s.StreamByte(&m.Unused)
 }
 

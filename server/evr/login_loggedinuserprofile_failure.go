@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net/http"
 )
@@ -13,23 +12,15 @@ type LoggedInUserProfileFailure struct {
 	ErrorMessage string
 }
 
-func (m LoggedInUserProfileFailure) Token() string {
-	return "SNSLoggedInUserProfileFailure"
-}
-
-func (m LoggedInUserProfileFailure) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
 func (m *LoggedInUserProfileFailure) String() string {
-	return fmt.Sprintf("%s(user_id=%v, status=%v, msg=\"%s\")", m.Token(), m.EvrID, http.StatusText(int(m.StatusCode)), m.ErrorMessage)
+	return fmt.Sprintf("%T(user_id=%v, status=%v, msg=\"%s\")", m, m.EvrID, http.StatusText(int(m.StatusCode)), m.ErrorMessage)
 }
 
 func (m *LoggedInUserProfileFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.StatusCode) },
+		func() error { return s.Stream(&m.EvrID.PlatformCode) },
+		func() error { return s.Stream(&m.EvrID.AccountID) },
+		func() error { return s.Stream(&m.StatusCode) },
 		func() error { return s.StreamNullTerminatedString(&m.ErrorMessage) },
 	})
 }

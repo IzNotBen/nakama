@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net/http"
 )
@@ -11,14 +10,6 @@ type OtherUserProfileFailure struct {
 	EvrID      EvrID  // The identifier of the associated user.
 	StatusCode uint64 // The status code returned with the failure. (These are http status codes)
 	Message    string // The message returned with the failure.
-}
-
-func (m *OtherUserProfileFailure) Token() string {
-	return "SNSOtherUserProfileFailure"
-}
-
-func (m *OtherUserProfileFailure) Symbol() Symbol {
-	return SymbolOf(m)
 }
 
 func NewOtherUserProfileFailure(evrID EvrID, statusCode uint64, message string) *OtherUserProfileFailure {
@@ -31,12 +22,12 @@ func NewOtherUserProfileFailure(evrID EvrID, statusCode uint64, message string) 
 
 func (m *OtherUserProfileFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamStruct(&m.EvrID) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.StatusCode) },
+		func() error { return s.Stream(&m.EvrID) },
+		func() error { return s.Stream(&m.StatusCode) },
 		func() error { return s.StreamNullTerminatedString(&m.Message) },
 	})
 }
 
 func (m *OtherUserProfileFailure) String() string {
-	return fmt.Sprintf("%s(user_id=%v, status=%v, msg=\"%s\")", m.Token(), m.EvrID, http.StatusText(int(m.StatusCode)), m.Message)
+	return fmt.Sprintf("%T(user_id=%v, status=%v, msg=\"%s\")", m, m.EvrID, http.StatusText(int(m.StatusCode)), m.Message)
 }

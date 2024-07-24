@@ -899,3 +899,64 @@ func SetCosmeticDefaults(s *evr.ServerProfile, enableAll bool) error {
 	}
 	return nil
 }
+
+func (r *ProfileRegistry) LoadProfile(userID uuid.UUID, evrID evr.EvrId) (GameProfileData, error) {
+
+	// Determine the display name
+	displayName, err := SetDisplayNameByChannelBySession(ctx, p.runtimeModule, logger, p.discordRegistry, session, label.GetGroupID().String())
+	if err != nil {
+		logger.Warn("Failed to set display name.", zap.Error(err))
+	}
+
+	// Set the profile's display name.
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	if !ok {
+		return fmt.Errorf("failed to get evrID from session context")
+	}
+
+	loginSession, ok := ctx.Value(ctxLoginSessionKey{}).(*sessionWS)
+	if !ok {
+		return fmt.Errorf("failed to get login session from session context")
+	}
+
+	profile, found := p.profileRegistry.Load(session.UserID(), evrID)
+	if !found {
+		defer session.Close("profile not found", runtime.PresenceReasonUnknown)
+		return fmt.Errorf("profile not found: %s", session.UserID())
+	}
+
+	profile.UpdateDisplayName(displayName)
+	profile.SetEvrID(evrID)
+
+	// Get the most recent past thursday
+	serverProfile := profile.GetServer()
+
+	for t := range serverProfile.Statistics {
+		if t == "arena" || t == "combat" {
+			continue
+		}
+		if strings.HasPrefix(t, "daily_") {
+			// Parse the date
+			date, err := time.Parse("2006_01_02", strings.TrimPrefix(t, "daily_"))
+			// Keep anything less than 48 hours old
+			if err == nil && time.Since(date) < 48*time.Hour {
+				continue
+			}
+		} else if strings.HasPrefix(t, "weekly_") {
+			// Parse the date
+			date, err := time.Parse("2006_01_02", strings.TrimPrefix(t, "weekly_"))
+			// Keep anything less than 2 weeks old
+			if err == nil && time.Since(date) < 14*24*time.Hour {
+				continue
+			}
+		}
+		delete(serverProfile.Statistics, t)
+	}
+
+	// Add the user's profile to the cache (by EvrID)
+	err = p.profileCache.Add(matchID, evrID, serverProfile)
+	if err != nil {
+		logger.Warn("Failed to add profile to cache", zap.Error(err))
+	}
+
+}

@@ -82,25 +82,25 @@ func (m *LobbySessionSuccessv4) String() string {
 	)
 }
 
-func (m *LobbySessionSuccessv4) Stream(s *EasyStream) error {
+func (m *LobbySessionSuccessv4) Stream(s *Stream) error {
 	var se *PacketEncoderSettings
 	var ce *PacketEncoderSettings
 
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameTypeSymbol) },
-		func() error { return s.StreamGuid(&m.MatchingSession) },
-		func() error { return s.StreamStruct(&m.Endpoint) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ServerEncoderFlags) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ClientEncoderFlags) },
+		func() error { return s.Stream(&m.GameTypeSymbol) },
+		func() error { return s.Stream(&m.MatchingSession) },
+		func() error { return s.Stream(&m.Endpoint) },
+		func() error { return s.Stream(&m.TeamIndex) },
+		func() error { return s.Stream(&m.Unk1) },
+		func() error { return s.Stream(&m.ServerEncoderFlags) },
+		func() error { return s.Stream(&m.ClientEncoderFlags) },
 		func() error { se = PacketEncoderSettingsFromFlags(m.ServerEncoderFlags); return nil },
 		func() error { ce = PacketEncoderSettingsFromFlags(m.ClientEncoderFlags); return nil },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ServerSequenceId) },
+		func() error { return s.Stream(&m.ServerSequenceId) },
 		func() error { return s.StreamBytes(&m.ServerMacKey, se.MacKeySize) },
 		func() error { return s.StreamBytes(&m.ServerEncKey, se.EncryptionKeySize) },
 		func() error { return s.StreamBytes(&m.ServerRandomKey, se.RandomKeySize) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ClientSequenceId) },
+		func() error { return s.Stream(&m.ClientSequenceId) },
 		func() error { return s.StreamBytes(&m.ClientMacKey, ce.MacKeySize) },
 		func() error { return s.StreamBytes(&m.ClientEncKey, ce.EncryptionKeySize) },
 		func() error { return s.StreamBytes(&m.ClientRandomKey, ce.RandomKeySize) },
@@ -128,25 +128,25 @@ func (m *LobbySessionSuccessv5) String() string {
 		m.TeamIndex,
 	)
 }
-func (m *LobbySessionSuccessv5) Stream(s *EasyStream) error {
+func (m *LobbySessionSuccessv5) Stream(s *Stream) error {
 	var se *PacketEncoderSettings
 	var ce *PacketEncoderSettings
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.GameTypeSymbol) },
-		func() error { return s.StreamGuid(&m.MatchingSession) },
-		func() error { return s.StreamGuid(&m.ChannelUUID) },
-		func() error { return s.StreamStruct(&m.Endpoint) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ServerEncoderFlags) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ClientEncoderFlags) },
+		func() error { return s.Stream(&m.GameTypeSymbol) },
+		func() error { return s.Stream(&m.MatchingSession) },
+		func() error { return s.Stream(&m.ChannelUUID) },
+		func() error { return s.Stream(&m.Endpoint) },
+		func() error { return s.Stream(&m.TeamIndex) },
+		func() error { return s.Stream(&m.Unk1) },
+		func() error { return s.Stream(&m.ServerEncoderFlags) },
+		func() error { return s.Stream(&m.ClientEncoderFlags) },
 		func() error { se = PacketEncoderSettingsFromFlags(m.ServerEncoderFlags); return nil },
 		func() error { ce = PacketEncoderSettingsFromFlags(m.ClientEncoderFlags); return nil },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ServerSequenceId) },
+		func() error { return s.Stream(&m.ServerSequenceId) },
 		func() error { return s.StreamBytes(&m.ServerMacKey, se.MacKeySize) },
 		func() error { return s.StreamBytes(&m.ServerEncKey, se.EncryptionKeySize) },
 		func() error { return s.StreamBytes(&m.ServerRandomKey, se.RandomKeySize) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.ClientSequenceId) },
+		func() error { return s.Stream(&m.ClientSequenceId) },
 		func() error { return s.StreamBytes(&m.ClientMacKey, ce.MacKeySize) },
 		func() error { return s.StreamBytes(&m.ClientEncKey, ce.EncryptionKeySize) },
 		func() error { return s.StreamBytes(&m.ClientRandomKey, ce.RandomKeySize) },

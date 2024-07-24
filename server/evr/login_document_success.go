@@ -74,13 +74,13 @@ func NewDocumentSuccess(document Document) *DocumentSuccess {
 	}
 }
 
-func (m *DocumentSuccess) Stream(s *EasyStream) error {
+func (m *DocumentSuccess) Stream(s *Stream) error {
 	documentSymbol := m.Document.Symbol()
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamSymbol(&documentSymbol) },
+		func() error { return s.Stream(&documentSymbol) },
 		func() error {
 			// Set the document type based on the symbol
-			if s.Mode == DecodeMode {
+			if s.r != nil {
 				switch documentSymbol {
 				case 0xc8c33e483f6612b1: // eula
 					m.Document = &EULADocument{}
@@ -88,7 +88,7 @@ func (m *DocumentSuccess) Stream(s *EasyStream) error {
 					return fmt.Errorf("unknown document type: `%s`", documentSymbol.Token())
 				}
 			}
-			return s.StreamJson(m.Document, true, ZstdCompression)
+			return s.StreamJSON(m.Document, true, ZstdCompression)
 		},
 	})
 }

@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -35,24 +34,22 @@ func (m LobbyPingRequest) String() string {
 }
 
 // Stream streams the message data in/out based on the streaming mode set.
-func (m *LobbyPingRequest) Stream(s *EasyStream) error {
+func (m *LobbyPingRequest) Stream(s *Stream) error {
 	RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.BigEndian, &m.Unk0) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.RTTMax) },
+		func() error { return s.StreamBE(&m.Unk0) },
+		func() error { return s.Stream(&m.Unk1) },
+		func() error { return s.Stream(&m.RTTMax) },
 		func() error {
 			// Each endpoint is 10 bytes + 2 bytes of padding
-			if s.Mode == DecodeMode {
+			if s.r != nil {
 				endpointCount := s.r.Len() / 12 // 10 byte struct + 2 byte padding
 				m.Endpoints = make([]Endpoint, endpointCount)
 			}
 			for i := range m.Endpoints {
-				if err := s.StreamStruct(&m.Endpoints[i]); err != nil {
+				if err := s.Stream(&m.Endpoints[i]); err != nil {
 					return err
 				}
-				// Stream 2 bytes of padding
-				pad2 := make([]byte, 2)
-				if err := s.StreamBytes(&pad2, 2); err != nil {
+				if err := s.Skip(2); err != nil {
 					return err
 				}
 			}
@@ -168,10 +165,10 @@ func EndpointFromString(s string) Endpoint {
 	}
 }
 
-func (e *Endpoint) Stream(s *EasyStream) error {
+func (e *Endpoint) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamIpAddress(&e.InternalIP) },
-		func() error { return s.StreamIpAddress(&e.ExternalIP) },
-		func() error { return s.StreamNumber(binary.BigEndian, &e.Port) },
+		func() error { return s.StreamIP(&e.InternalIP) },
+		func() error { return s.StreamIP(&e.ExternalIP) },
+		func() error { return s.StreamBE(&e.Port) },
 	})
 }

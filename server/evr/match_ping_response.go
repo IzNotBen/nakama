@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
 	"strings"
@@ -36,14 +35,14 @@ func NewLobbyPingResponse() *LobbyPingResponse {
 		Results: []EndpointPingResult{},
 	}
 }
-func (m *LobbyPingResponse) Stream(s *EasyStream) error {
+func (m *LobbyPingResponse) Stream(s *Stream) error {
 	rLength := uint64(len(m.Results))
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &rLength) },
+		func() error { return s.Stream(&rLength) },
 		func() error {
 			m.Results = make([]EndpointPingResult, rLength)
 			for i := 0; i < len(m.Results); i++ {
-				err := s.StreamStruct(&m.Results[i])
+				err := s.Stream(&m.Results[i])
 				if err != nil {
 					return err
 				}
@@ -76,11 +75,11 @@ func (m EndpointPingResult) RTT() time.Duration {
 }
 
 // Stream streams the EndpointPingResult data in/out based on the streaming mode set.
-func (r *EndpointPingResult) Stream(s *EasyStream) error {
+func (r *EndpointPingResult) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamIpAddress(&r.InternalIP) },
-		func() error { return s.StreamIpAddress(&r.ExternalIP) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &r.PingMilliseconds) },
+		func() error { return s.StreamIP(&r.InternalIP) },
+		func() error { return s.StreamIP(&r.ExternalIP) },
+		func() error { return s.Stream(&r.PingMilliseconds) },
 	})
 }
 

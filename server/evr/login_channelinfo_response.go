@@ -12,27 +12,19 @@ type ChannelInfoResponse struct {
 	ChannelInfo ChannelInfoResource
 }
 
-func (m *ChannelInfoResponse) Token() string {
-	return "SNSChannelInfoResponse"
-}
-
-func (m *ChannelInfoResponse) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
 type ChannelInfoResource struct {
 	Groups []ChannelGroup `json:"group" validate:"required,notempty"`
 }
 
-func (m *ChannelInfoResponse) Stream(s *EasyStream) error {
-	return s.StreamJson(&m.ChannelInfo, false, ZlibCompression)
+func (m *ChannelInfoResponse) Stream(s *Stream) error {
+	return s.StreamJSON(&m.ChannelInfo, false, ZlibCompression)
 }
 
 func (m *ChannelInfoResponse) String() string {
 	channelNames := lo.Map(m.ChannelInfo.Groups, func(group ChannelGroup, i int) string {
 		return group.Name
 	})
-	return fmt.Sprintf("%s(%s)", m.Token(), strings.Join(channelNames, "; "))
+	return fmt.Sprintf("%T(%s)", m, strings.Join(channelNames, "; "))
 }
 
 func NewSNSChannelInfoResponse(channelInfo *ChannelInfoResource) *ChannelInfoResponse {

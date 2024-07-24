@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/gofrs/uuid/v5"
@@ -23,29 +22,21 @@ func NewGenericMessageNotify(messageType Symbol, session uuid.UUID, roomId int64
 	}
 }
 
-func (m GenericMessageNotify) Token() string {
-	return "SNSGenericMessageNotify"
-}
-
-func (m *GenericMessageNotify) Symbol() Symbol {
-	return SymbolOf(m)
-}
-
-func (m *GenericMessageNotify) Stream(s *EasyStream) error {
+func (m *GenericMessageNotify) Stream(s *Stream) error {
 	padding := make([]byte, 8)
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamBytes(&padding, 8) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.RoomId) },
-		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamSymbol(&m.MessageType) },
-		func() error { return s.StreamJson(&m.PartyData, true, ZstdCompression) },
+		func() error { return s.Stream(&m.RoomId) },
+		func() error { return s.Stream(&m.Session) },
+		func() error { return s.Stream(&m.MessageType) },
+		func() error { return s.StreamJSON(&m.PartyData, true, ZstdCompression) },
 	})
 }
 
 func (m *GenericMessageNotify) String() string {
-	return fmt.Sprintf("GenericMessageNotify{MessageType: %d, Session: %s, RoomId: %d, PartyData: %v}", m.MessageType, m.Session, m.RoomId, m.PartyData)
+	return fmt.Sprintf("%T{MessageType: %d, Session: %s, RoomId: %d, PartyData: %v}", m, m.MessageType, m.Session, m.RoomId, m.PartyData)
 }
 
-func (m *GenericMessageNotify) GetSessionID() uuid.UUID {
+func (m *GenericMessageNotify) GetLoginSessionID() uuid.UUID {
 	return m.Session
 }

@@ -43,12 +43,12 @@ func TestLoginFailure(t *testing.T) {
 	}, jsonMessage.ErrorMessage)
 	structMessage.StatusCode = jsonMessage.StatusCode
 
-	err = binaryMessage.Stream(NewEasyStream(DecodeMode, binaryBytes))
+	err = binaryMessage.Stream(NewStream(binaryBytes))
 	if err != nil {
 		return
 	}
 
-	streamedMessage := NewEasyStream(1, []byte{})
+	streamedMessage := NewStream([]byte{})
 	if err := binaryMessage.Stream(streamedMessage); err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}

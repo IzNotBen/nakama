@@ -66,11 +66,7 @@ func TestSetCosmeticDefaults(t *testing.T) {
 				return
 			}
 			if tt.args.s.UnlockedCosmetics.Arena.Banner0025 != true {
-<<<<<<< HEAD
 				t.Errorf("cosmetic should be unlocked: %v", tt.args.s.UnlockedCosmetics.Arena)
-=======
-				t.Errorf("cosmetic should be unlocked: %v", tt.args.UnlockedCosmetics.Arena)
->>>>>>> 5729c5ab (fixup! Port EvrID changes from develop)
 				return
 			}
 		})

@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/gofrs/uuid/v5"
@@ -26,37 +25,29 @@ func NewGenericMessage(session uuid.UUID, acctId uint64, messageType Symbol, oth
 	}
 }
 
-func (m GenericMessage) Token() string {
-	return "SNSGenericMessage"
-}
-
-func (m *GenericMessage) Symbol() Symbol {
-	return SymbolOf(m)
-}
-
-func (m *GenericMessage) Stream(s *EasyStream) error {
+func (m *GenericMessage) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.AcctId) },
-		func() error { return s.StreamSymbol(&m.MessageType) },
-		func() error { return s.StreamStruct(&m.OtherEvrID) },
+		func() error { return s.Stream(&m.Session) },
+		func() error { return s.Stream(&m.AcctId) },
+		func() error { return s.Stream(&m.MessageType) },
+		func() error { return s.Stream(&m.OtherEvrID) },
 		func() error {
 			// ovr_social_member_data_nack
 			if m.MessageType == 0xb9ea35ff8448e615 {
-				return s.StreamNumber(binary.LittleEndian, &m.RoomID)
+				return s.Stream(&m.RoomID)
 			} else {
-				return s.StreamJson(&m.PartyData, true, ZstdCompression)
+				return s.StreamJSON(&m.PartyData, true, ZstdCompression)
 			}
 		},
 	})
 }
 
-func (m *GenericMessage) GetSessionID() uuid.UUID {
+func (m *GenericMessage) GetLoginSessionID() uuid.UUID {
 	return m.Session
 }
 
 func (m GenericMessage) String() string {
-	return fmt.Sprintf("GenericMessage{Session: %s, AcctId: %d, OVRSymbol: %d, OtherEvrID: %s, RoomId: %d, PartyData: %v}", m.Session, m.AcctId, m.MessageType, m.OtherEvrID.String(), m.RoomID, m.PartyData)
+	return fmt.Sprintf("%T{Session: %s, AcctId: %d, OVRSymbol: %d, OtherEvrID: %s, RoomId: %d, PartyData: %v}", m, m.Session, m.AcctId, m.MessageType, m.OtherEvrID.String(), m.RoomID, m.PartyData)
 }
 
 type GenericMessageData struct {

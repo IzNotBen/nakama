@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 )
 
@@ -24,11 +23,11 @@ func NewConfigSuccess(_type string, id string, resource any) *ConfigSuccess {
 	}
 }
 
-func (m *ConfigSuccess) Stream(s *EasyStream) error {
+func (m *ConfigSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Type) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Id) },
-		func() error { return s.StreamJson(&m.Resource, true, ZstdCompression) },
+		func() error { return s.Stream(&m.Type) },
+		func() error { return s.Stream(&m.Id) },
+		func() error { return s.StreamJSON(&m.Resource, true, ZstdCompression) },
 	})
 }
 

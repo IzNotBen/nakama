@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/gofrs/uuid/v5"
@@ -14,24 +13,16 @@ type LoggedInUserProfileRequest struct {
 	ProfileRequestData ProfileRequestData
 }
 
-func (m LoggedInUserProfileRequest) Token() string {
-	return "SNSLoggedInUserProfileRequest"
-}
-
-func (m LoggedInUserProfileRequest) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
-func (r LoggedInUserProfileRequest) String() string {
-	return fmt.Sprintf("LoggedInUserProfileRequest(session=%v, user_id=%v, profile_request=%v)", r.Session, r.EvrID, r.ProfileRequestData)
+func (m LoggedInUserProfileRequest) String() string {
+	return fmt.Sprintf("%T(session=%v, user_id=%v, profile_request=%v)", m, m.Session, m.EvrID, m.ProfileRequestData)
 }
 
 func (m *LoggedInUserProfileRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
-		func() error { return s.StreamJson(&m.ProfileRequestData, true, NoCompression) },
+		func() error { return s.Stream(&m.Session) },
+		func() error { return s.Stream(&m.EvrID.PlatformCode) },
+		func() error { return s.Stream(&m.EvrID.AccountID) },
+		func() error { return s.StreamJSON(&m.ProfileRequestData, true, NoCompression) },
 	})
 }
 
@@ -42,7 +33,7 @@ func NewLoggedInUserProfileRequest(session uuid.UUID, evrID EvrID, profileReques
 		ProfileRequestData: profileRequestData,
 	}
 }
-func (m *LoggedInUserProfileRequest) GetSessionID() uuid.UUID {
+func (m *LoggedInUserProfileRequest) GetLoginSessionID() uuid.UUID {
 	return m.Session
 }
 

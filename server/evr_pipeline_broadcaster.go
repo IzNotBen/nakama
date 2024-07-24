@@ -54,7 +54,7 @@ func errFailedRegistration(session *sessionWS, logger *zap.Logger, err error, co
 
 // broadcasterRegistrationRequest is called when the broadcaster has sent a registration request.
 func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
-	request := in.(*evr.BroadcasterRegistrationRequest)
+	request := in.(*evr.GameServerRegistrationRequest)
 	discordId := ""
 
 	// server connections are authenticated by discord ID and password.
@@ -86,7 +86,7 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 	regions = append(regions, evr.ToSymbol(userId))
 
 	// Add the server id as a region
-	regions = append(regions, evr.ToSymbol(request.ServerId))
+	regions = append(regions, evr.ToSymbol(request.ServerID))
 
 	// Remove any duplicates from the regions
 	seenRegions := make(map[evr.Symbol]struct{})
@@ -113,7 +113,7 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 	features := ctx.Value(ctxFeaturesKey{}).([]string)
 
 	// Create the broadcaster config
-	config := broadcasterConfig(userId, session.id.String(), request.ServerId, request.InternalIP, externalIP, request.Port, regions, request.VersionLock, tags, features)
+	config := broadcasterConfig(userId, session.id.String(), request.ServerID, request.InternalIP, externalIP, request.Port, regions, request.VersionLock, tags, features)
 
 	// Get the hosted groupIDs
 	groupIDs, err := p.getBroadcasterHostGroups(ctx, userId, guildIds)
@@ -577,7 +577,7 @@ func isPrivateIP(ip net.IP) bool {
 }
 
 func (p *EvrPipeline) broadcasterSessionStarted(_ context.Context, logger *zap.Logger, _ *sessionWS, in evr.Message) error {
-	request := in.(*evr.BroadcasterSessionStarted)
+	request := in.(*evr.GameServerSessionStarted)
 
 	logger.Info("Game session started", zap.String("mid", request.LobbySessionID.String()))
 
@@ -623,7 +623,7 @@ func (p *EvrPipeline) broadcasterSessionEnded(ctx context.Context, logger *zap.L
 }
 
 func (p *EvrPipeline) broadcasterPlayerAccept(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
-	request := in.(*evr.GameServerJoinAttempt)
+	request := in.(*evr.GameServerEntrants)
 
 	matchID, _, err := GameServerBySessionID(p.runtimeModule, session.ID())
 	if err != nil {
@@ -677,11 +677,11 @@ func (p *EvrPipeline) broadcasterPlayerAccept(ctx context.Context, logger *zap.L
 	// Only include the message if there are players to accept or reject.
 	messages := []evr.Message{}
 	if len(accepted) > 0 {
-		messages = append(messages, evr.NewGameServerJoinAllowed(accepted...))
+		messages = append(messages, evr.NewGameServerEntrantAccepted(accepted...))
 	}
 
 	if len(rejected) > 0 {
-		messages = append(messages, evr.NewBroadcasterPlayersRejected(evr.PlayerRejectionReasonBadRequest, rejected...))
+		messages = append(messages, evr.NewGameServerEntrantsReject(evr.PlayerRejectionReasonBadRequest, rejected...))
 	}
 
 	return session.SendEvr(messages...)
@@ -689,7 +689,7 @@ func (p *EvrPipeline) broadcasterPlayerAccept(ctx context.Context, logger *zap.L
 
 // broadcasterPlayerRemoved is called when a player has been removed from the match.
 func (p *EvrPipeline) broadcasterPlayerRemoved(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
-	message := in.(*evr.BroadcasterPlayerRemoved)
+	message := in.(*evr.GameServerEntrantRemoved)
 	matchID, _, err := GameServerBySessionID(p.runtimeModule, session.ID())
 	if err != nil {
 		logger.Warn("Failed to get broadcaster's match by session ID", zap.Error(err))

@@ -47,17 +47,15 @@ var (
 		0x6d4de3650ee3110f: (*LobbySessionSuccessv5)(nil),
 		0x6d54a19a3ff24415: (*UpdateClientProfile)(nil),
 		0x7777777777770000: (*BroadcasterStartSession)(nil),
-		0x7777777777770100: (*BroadcasterSessionStarted)(nil),
-		0x7777777777770200: (*BroadcasterSessionEnded)(nil),
-		0x7777777777770300: (*BroadcasterPlayerSessionsLocked)(nil),
-		0x7777777777770400: (*BroadcasterPlayerSessionsUnlocked)(nil),
-		0x7777777777770500: (*GameServerJoinAttempt)(nil),
-		0x7777777777770600: (*GameServerJoinAllowed)(nil),
-		0x7777777777770700: (*GameServerJoinRejected)(nil),
-		0x7777777777770800: (*BroadcasterPlayerRemoved)(nil),
-		0x7777777777770900: (*BroadcasterChallengeRequest)(nil),
-		0x7777777777770a00: (*GameServerChallengeResponse)(nil),
-		0x7777777777777777: (*BroadcasterRegistrationRequest)(nil),
+		0x7777777777770100: (*GameServerSessionStarted)(nil),
+		0x7777777777770200: (*GameServerSessionEnded)(nil),
+		0x7777777777770300: (*GameServerSessionLocked)(nil),
+		0x7777777777770400: (*GameServerSessionUnlocked)(nil),
+		0x7777777777770500: (*GameServerEntrants)(nil),
+		0x7777777777770600: (*GameServerEntrantAccepted)(nil),
+		0x7777777777770700: (*GameServerEntrantsReject)(nil),
+		0x7777777777770800: (*GameServerEntrantRemoved)(nil),
+		0x7777777777777777: (*GameServerRegistrationRequest)(nil),
 		0x82869f0b37eb4378: (*ConfigRequest)(nil),
 		0xb9cdaf586f7bd012: (*ConfigSuccess)(nil),
 		0x9e687a63dddd3870: (*ConfigFailure)(nil),
@@ -194,7 +192,7 @@ func Marshal(msgs ...Message) ([]byte, error) {
 	b := make([]byte, 0)
 	for _, m := range msgs {
 		// Encode the message.
-		s := NewStream(EncodeMode, []byte{})
+		s := NewStream(nil)
 		if err := m.Stream(s); err != nil {
 			errs = errors.Join(fmt.Errorf("could not stream message:%s", err), errs)
 			continue
@@ -284,7 +282,7 @@ func ParsePacket(data []byte) ([]Message, error) {
 
 		// Create a new message of the correct type and unmarshal the data into it.
 		message := reflect.New(reflect.TypeOf(typ).Elem()).Interface().(Message)
-		if err = message.Stream(NewEasyStream(DecodeMode, b)); err != nil {
+		if err = message.Stream(NewStream(b)); err != nil {
 			return nil, fmt.Errorf("Stream error: %T: %w", typ, err)
 
 		}

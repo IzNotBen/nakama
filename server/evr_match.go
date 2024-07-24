@@ -338,6 +338,14 @@ func (s *EvrMatchState) PublicView() *EvrMatchState {
 	return &ps
 }
 
+func (s *EvrMatchState) GetAvailablePlayerSlots() int {
+	return s.PlayerLimit - s.PlayerCount
+}
+
+func (s *EvrMatchState) GetAvailableNonPlayerSlots() int {
+	return int(s.MaxSize) - s.PlayerLimit
+}
+
 func MatchStateFromLabel(label string) (*EvrMatchState, error) {
 	state := &EvrMatchState{}
 	err := json.Unmarshal([]byte(label), state)

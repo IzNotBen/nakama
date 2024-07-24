@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -10,12 +9,6 @@ import (
 
 var (
 	_ = IdentifyingMessage(&LobbyCreateSessionRequest{})
-	_ = LobbySessionRequest(&LobbyCreateSessionRequest{})
-)
-
-var (
-	UnspecifiedRegion = Symbol(0xffffffffffffffff)
-	DefaultRegion     = ToSymbol("default")
 )
 
 // LobbyCreateSessionRequest represents a request from the client to the server for creating a new game session.
@@ -34,38 +27,36 @@ type LobbyCreateSessionRequest struct {
 	Entrants         []Entrant
 }
 
-func (m *LobbyCreateSessionRequest) Stream(s *EasyStream) error {
+func (m *LobbyCreateSessionRequest) Stream(s *Stream) error {
 	flags := uint32(0)
 
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Region) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.VersionLock) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Mode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Level) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.Platform) },
-		func() error { return s.StreamGuid(&m.LoginSessionID) },
+		func() error { return s.Stream(&m.Region) },
+		func() error { return s.Stream(&m.VersionLock) },
+		func() error { return s.Stream(&m.Mode) },
+		func() error { return s.Stream(&m.Level) },
+		func() error { return s.Stream(&m.Platform) },
+		func() error { return s.StreamUUID(&m.LoginSessionID) },
 		func() error {
 			c := int8(len(m.Entrants))
-			if err := s.StreamNumber(binary.LittleEndian, &c); err != nil {
+			if err := s.Stream(&c); err != nil {
 				return err
 			}
-			if s.Mode == DecodeMode {
+			if s.r != nil {
 				m.Entrants = make([]Entrant, c) // Limit to 16
 			}
 			return s.Skip(7) // Alignment
 		},
 		func() error {
 			lt := uint8(m.LobbyType)
-			if err := s.StreamNumber(binary.LittleEndian, &lt); err != nil {
+			if err := s.Stream(&lt); err != nil {
 				m.LobbyType = LobbyType(lt)
 			}
 			return s.Skip(3) // Alignment
 		},
 		func() error {
-			switch s.Mode {
-			case DecodeMode:
-
-				if err := s.StreamNumber(binary.LittleEndian, &flags); err != nil {
+			if s.r != nil {
+				if err := s.Stream(&flags); err != nil {
 					return err
 				}
 				// If there are no team indexes, set all of the Roles to -1 (unspecified)
@@ -77,9 +68,7 @@ func (m *LobbyCreateSessionRequest) Stream(s *EasyStream) error {
 				}
 
 				m.CrossPlayEnabled = flags&SessionFlag_EnableCrossPlay != 0
-
-			case EncodeMode:
-
+			} else {
 				// TeamIndexes are only sent if there are entrants with team indexes > -1
 				for _, entrant := range m.Entrants {
 					if entrant.Role > -1 {
@@ -90,18 +79,18 @@ func (m *LobbyCreateSessionRequest) Stream(s *EasyStream) error {
 				if m.CrossPlayEnabled {
 					flags |= SessionFlag_EnableCrossPlay
 				}
-				return s.StreamNumber(binary.LittleEndian, &flags)
+				return s.Stream(&flags)
 			}
 			return nil
 		},
-		func() error { return s.StreamGuid(&m.GroupID) },
+		func() error { return s.Stream(&m.GroupID) },
 		func() error {
-			return s.StreamJson(&m.SessionSettings, true, NoCompression)
+			return s.StreamJSON(&m.SessionSettings, true, NoCompression)
 		},
 		func() error {
 			// Stream the entrants
 			for i := range m.Entrants {
-				if err := s.StreamStruct(&m.Entrants[i].EvrID); err != nil {
+				if err := s.Stream(&m.Entrants[i].EvrID); err != nil {
 					return err
 				}
 			}
@@ -111,7 +100,7 @@ func (m *LobbyCreateSessionRequest) Stream(s *EasyStream) error {
 			// Stream the team indexes
 			if flags&SessionFlag_TeamIndexes != 0 && s.Len() >= len(m.Entrants) {
 				for i := range m.Entrants {
-					if err := s.StreamNumber(binary.LittleEndian, &m.Entrants[i].Role); err != nil {
+					if err := s.Stream(&m.Entrants[i].Role); err != nil {
 						return err
 					}
 				}
@@ -144,7 +133,7 @@ func (m *LobbyCreateSessionRequest) String() string {
 	)
 }
 
-func (m *LobbyCreateSessionRequest) GetSessionID() uuid.UUID {
+func (m *LobbyCreateSessionRequest) GetLoginSessionID() uuid.UUID {
 	return m.LoginSessionID
 }
 

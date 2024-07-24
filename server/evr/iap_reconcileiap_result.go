@@ -58,7 +58,7 @@ func (r *ReconcileIAPResult) String() string {
 
 func (r *ReconcileIAPResult) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamStruct(&r.EvrID) },
-		func() error { return s.StreamJson(&r.IAPData, true, NoCompression) },
+		func() error { return s.Stream(&r.EvrID) },
+		func() error { return s.StreamJSON(&r.IAPData, true, NoCompression) },
 	})
 }

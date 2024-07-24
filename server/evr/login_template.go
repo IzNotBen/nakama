@@ -9,6 +9,6 @@ func (m *Template) Symbol() Symbol {
 	return TemplateSymbol
 }
 
-func (m *Template) Stream(s *EasyStream) error {
+func (m *Template) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{})
 }

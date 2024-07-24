@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 )
 
@@ -11,22 +10,14 @@ type UpdateProfileFailure struct {
 	Message    string
 }
 
-func (m *UpdateProfileFailure) Token() string {
-	return "SNSUpdateProfileFailure"
+func (m *UpdateProfileFailure) String() string {
+	return fmt.Sprintf("%T(user_id=%s, status_code=%d, msg='%s')", m, m.EvrID.String(), m.statusCode, m.Message)
 }
 
-func (m *UpdateProfileFailure) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
-func (lr *UpdateProfileFailure) String() string {
-	return fmt.Sprintf("%s(user_id=%s, status_code=%d, msg='%s')", lr.Token(), lr.EvrID.String(), lr.statusCode, lr.Message)
-}
-
-func (m *UpdateProfileFailure) Stream(s *EasyStream) error {
+func (m *UpdateProfileFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.statusCode) },
+		func() error { return s.Stream(&m.EvrID) },
+		func() error { return s.Stream(&m.statusCode) },
 		func() error { return s.StreamNullTerminatedString(&m.Message) },
 	})
 }

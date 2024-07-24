@@ -1,13 +1,10 @@
 package evr
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/gofrs/uuid/v5"
 )
-
-var Symbol_SNSLoginRequestv2 Symbol = LoginFailure{}.Symbol()
 
 // LoginRequest represents a message from client to server requesting for a user sign-in.
 type LoginRequest struct {
@@ -16,20 +13,16 @@ type LoginRequest struct {
 	LoginData LoginProfile `json:"LoginData"`
 }
 
-func (m LoginRequest) Token() string   { return "SNSLogInRequestv2" }
-func (m *LoginRequest) Symbol() Symbol { return SymbolOf(m) }
-
-func (lr LoginRequest) String() string {
-	return fmt.Sprintf("%s(session=%v, user_id=%s, login_data=%s)",
-		lr.Token(), lr.Session, lr.EvrID.String(), lr.LoginData.String())
+func (m LoginRequest) String() string {
+	return fmt.Sprintf("%T(session=%v, user_id=%s, login_data=%s)", m, m.Session, m.EvrID.String(), m.LoginData.String())
 }
 
-func (m *LoginRequest) Stream(s *EasyStream) error {
+func (m *LoginRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
-		func() error { return s.StreamJson(&m.LoginData, true, NoCompression) },
+		func() error { return s.Stream(&m.Session) },
+		func() error { return s.Stream(&m.EvrID.PlatformCode) },
+		func() error { return s.Stream(&m.EvrID.AccountID) },
+		func() error { return s.StreamJSON(&m.LoginData, true, NoCompression) },
 	})
 }
 

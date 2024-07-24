@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/zlib"
 	"crypto/rand"
-	"encoding"
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
@@ -15,6 +14,7 @@ import (
 	"net"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/gofrs/uuid/v5"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -119,11 +119,18 @@ func (s *Stream) Skip(count int) error {
 	return err
 }
 
-func (s *Stream) StreamNumber(order binary.ByteOrder, value any) error {
+func (s *Stream) StreamBE(value any) error {
 	if s.r != nil {
-		return binary.Read(s.r, order, value)
+		return binary.Read(s.r, binary.BigEndian, value)
 	}
-	return binary.Write(s.w, order, value)
+	return binary.Write(s.w, binary.BigEndian, value)
+}
+
+func (s *Stream) StreamLE(value any) error {
+	if s.r != nil {
+		return binary.Read(s.r, binary.LittleEndian, value)
+	}
+	return binary.Write(s.w, binary.LittleEndian, value)
 }
 
 func (s *Stream) StreamIP(data *net.IP) error {
@@ -197,12 +204,7 @@ type Streamer any
 
 func (s *Stream) Stream(v any) (err error) {
 	// Check if this is a restruct Unpacker or Packer
-
 	switch t := v.(type) {
-	case encoding.BinaryMarshaler:
-		return s.encoder.Encode(t)
-	case encoding.BinaryUnmarshaler:
-		return s.decoder.Decode(t)
 	case Serializer:
 		return t.Stream(s)
 	case []Serializer:
@@ -213,24 +215,24 @@ func (s *Stream) Stream(v any) (err error) {
 		}
 		return nil
 	case []Streamer:
-		for _, t := range t {
-			if err = s.Stream(t); err != nil {
+		for _, v := range t {
+			if err = s.Stream(v); err != nil {
 				return err
 			}
 		}
 		return nil
 	case *Symbol:
-		return s.StreamNumber(binary.LittleEndian, t)
+		return s.StreamLE(t)
 	case *int:
-		return s.StreamNumber(binary.LittleEndian, t)
+		return s.StreamLE(t)
 	case *int32:
-		return s.StreamNumber(binary.LittleEndian, t)
+		return s.StreamLE(t)
 	case *int64:
-		return s.StreamNumber(binary.LittleEndian, t)
+		return s.StreamLE(t)
 	case *uint32:
-		return s.StreamNumber(binary.LittleEndian, t)
+		return s.StreamLE(t)
 	case *uint64:
-		return s.StreamNumber(binary.LittleEndian, t)
+		return s.StreamLE(t)
 	case *byte:
 		return s.StreamByte(t)
 	case *[]byte:
@@ -239,15 +241,16 @@ func (s *Stream) Stream(v any) (err error) {
 		return s.StreamString(t, len(*t))
 	case *GUID:
 		return s.StreamGUID(t)
+	case *uuid.UUID:
+		return s.StreamUUID(t)
 	case []GUID:
 		return s.StreamGUIDs(t)
 	case *[]GUID:
 		return s.StreamGUIDs(*t)
 	case *net.IP:
 		return s.StreamIP(t)
-
 	default:
-		return errors.New("Stream: unsupported type")
+		return fmt.Errorf("Stream: unsupported type: %T", v)
 	}
 }
 
@@ -270,6 +273,25 @@ func (s *Stream) StreamGUID(guid *GUID) (err error) {
 	return s.StreamBytes(&b, 16)
 }
 
+// Microsoft's GUID has some bytes re-ordered.
+func (s *Stream) StreamUUID(id *uuid.UUID) (err error) {
+	b := make([]byte, 16)
+	if s.r != nil {
+		if err = s.StreamBytes(&b, 16); err != nil {
+			return err
+		}
+
+		if err = id.UnmarshalBinary(b); err != nil {
+			return err
+		}
+		return nil
+	}
+	if b, err = id.MarshalBinary(); err != nil {
+		return err
+	}
+	return s.StreamBytes(&b, 16)
+}
+
 // Stream multiple GUIDs
 func (s *Stream) StreamGUIDs(g []GUID) error {
 	var err error
@@ -280,11 +302,12 @@ func (s *Stream) StreamGUIDs(g []GUID) error {
 	}
 	return nil
 }
+
 func (s *Stream) StreamStringTable(entries *[]string) error {
 	var err error
 	var strings []string
 	logCount := uint64(len(*entries))
-	if err = s.StreamNumber(binary.LittleEndian, &logCount); err != nil {
+	if err = s.Stream(&logCount); err != nil {
 		return err
 	}
 	if s.r != nil {
@@ -293,7 +316,7 @@ func (s *Stream) StreamStringTable(entries *[]string) error {
 		offsets[0] = 0
 		for i := 1; i < int(logCount); i++ {
 			off := uint32(0)
-			if err = s.StreamNumber(binary.LittleEndian, &off); err != nil {
+			if err = s.Stream(&off); err != nil {
 				return err
 			}
 			offsets[i] = off
@@ -315,7 +338,7 @@ func (s *Stream) StreamStringTable(entries *[]string) error {
 	// write the offsets
 	for i := 0; i < int(logCount-1); i++ {
 		off := uint32(len((*entries)[i]) + 1)
-		if err = s.StreamNumber(binary.LittleEndian, &off); err != nil {
+		if err = s.Stream(&off); err != nil {
 			return err
 		}
 	}

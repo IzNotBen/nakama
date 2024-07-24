@@ -13,18 +13,6 @@ type ReconcileIAP struct {
 	EvrID   EvrID
 }
 
-func (m ReconcileIAP) Token() string {
-	return "SNSReconcileIAP"
-}
-
-func (m ReconcileIAP) Symbol() Symbol {
-	return ToSymbol(m.Token())
-}
-
-func (m ReconcileIAP) String() string {
-	return fmt.Sprintf("%s()", m.Token())
-}
-
 func NewReconcileIAP(userID EvrID, session uuid.UUID) *ReconcileIAP {
 	return &ReconcileIAP{
 		EvrID:   userID,
@@ -32,18 +20,18 @@ func NewReconcileIAP(userID EvrID, session uuid.UUID) *ReconcileIAP {
 	}
 }
 
-func (r *ReconcileIAP) Stream(s *EasyStream) error {
+func (r *ReconcileIAP) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamGuid(&r.Session) },
-		func() error { return s.StreamStruct(&r.EvrID) },
+		func() error { return s.Stream(&r.Session) },
+		func() error { return s.Stream(&r.EvrID) },
 	})
 }
 
-func (r *ReconcileIAP) ToString() string {
-	return fmt.Sprintf("%s(user_id=%s, session=%v)", r.Token(), r.EvrID.String(), r.Session)
+func (r *ReconcileIAP) String() string {
+	return fmt.Sprintf("%s(user_id=%s, session=%v)", r, r.EvrID.String(), r.Session)
 }
 
-func (m *ReconcileIAP) GetSessionID() uuid.UUID {
+func (m *ReconcileIAP) GetLoginSessionID() uuid.UUID {
 	return m.Session
 }
 

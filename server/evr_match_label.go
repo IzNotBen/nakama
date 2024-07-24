@@ -322,10 +322,10 @@ func (c PlayerCount) Query(o QueryOperator, b int, expr string) string {
 	}.Escaped()
 }
 
-// The Match Channel is the channel from which the that the match was spawned. (e.g. Playground, etc.)
-type Channel uuid.UUID // uuid.UUID
+// The Match GroupID is the channel from which the that the match was spawned. (e.g. Playground, etc.)
+type GroupID uuid.UUID // uuid.UUID
 
-func (c Channel) Query(o QueryOperator, b int) string {
+func (c GroupID) Query(o QueryOperator, b int) string {
 	return Label{
 		Op:    rune(o),
 		Name:  "group_id",
@@ -334,7 +334,7 @@ func (c Channel) Query(o QueryOperator, b int) string {
 	}.Unescaped()
 }
 
-func (c Channel) String() string {
+func (c GroupID) String() string {
 	return uuid.UUID(c).String()
 }
 
