@@ -225,16 +225,22 @@ func (s *Stream) Stream(v any) (err error) {
 		return s.StreamLE(t)
 	case *int:
 		return s.StreamLE(t)
-	case *int32:
+	case *int8:
 		return s.StreamLE(t)
-	case *int64:
+	case *uint8:
+		return s.StreamLE(t)
+	case *int16:
+		return s.StreamLE(t)
+	case *uint16:
+		return s.StreamLE(t)
+	case *int32:
 		return s.StreamLE(t)
 	case *uint32:
 		return s.StreamLE(t)
+	case *int64:
+		return s.StreamLE(t)
 	case *uint64:
 		return s.StreamLE(t)
-	case *byte:
-		return s.StreamByte(t)
 	case *[]byte:
 		return s.StreamBytes(t, -1)
 	case *string:
