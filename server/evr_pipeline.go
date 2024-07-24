@@ -64,6 +64,7 @@ type EvrPipeline struct {
 	discordRegistry     DiscordRegistry
 	appBot              *DiscordAppBot
 	leaderboardRegistry *LeaderboardRegistry
+	pipelineNG          *EVRPipeline
 
 	createLobbyMu                    sync.Mutex
 	matchMutexs                      *MatchMutexs
@@ -139,6 +140,7 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 	if err != nil {
 		logger.Fatal("Failed to authenticate broadcaster", zap.Error(err))
 	}
+	pipelineNG := NewEVRPipelineNG(config, nk, db, matchRegistry, sessionRegistry, tracker, metrics)
 
 	evrPipeline := &EvrPipeline{
 		ctx:                  ctx,
@@ -168,6 +170,7 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 		localIP:           localIP,
 		externalIP:        externalIP,
 		broadcasterUserID: broadcasterUserID,
+		pipelineNG:        pipelineNG,
 
 		profileRegistry:     profileRegistry,
 		profileCache:        profileCache,
@@ -222,6 +225,10 @@ func (p *EvrPipeline) ProcessRequestEVR(logger *zap.Logger, session *sessionWS, 
 	var pipelineFn func(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error
 
 	requireAuthed := true
+
+	if _, ok := in.(*evr.LobbyFindSessionRequest); ok {
+		return p.pipelineNG.ProcessRequest(logger, EVRSession(session), in)
+	}
 
 	switch in.(type) {
 	// Config service
