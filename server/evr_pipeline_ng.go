@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -116,8 +115,6 @@ func (p *EVRPipeline) ProcessRequest(logger *zap.Logger, session EVRSession, in 
 	success = false
 
 	if !success {
-		// Disconnect the client after 30 seconds. If the client is immediately disconnected, the client will replace the message with a disconnect message.
-		// This is to prevent the client from being disconnected immediately after the message is sent.
 		go func() {
 			logger.Error("Disconnecting client after failed message processing.")
 			// Lock the close for 30 seconds to prevent the client from being disconnected immediately after the message is sent.
@@ -130,10 +127,7 @@ func (p *EVRPipeline) ProcessRequest(logger *zap.Logger, session EVRSession, in 
 	return success
 }
 
-// Process outgoing protobuf envelopes and translate them to Evr messages
 func (p *EVRPipeline) ProcessOutgoing(logger *zap.Logger, session *sessionWS, in *rtapi.Envelope) ([]evr.Message, error) {
-	// TODO FIXME Catch the match rejection message and translate it to an evr message
-	// TODO FIXME Catch the match leave message and translate it to an evr message
 
 	switch in.Message.(type) {
 	case *rtapi.Envelope_StreamData:
@@ -145,104 +139,10 @@ func (p *EVRPipeline) ProcessOutgoing(logger *zap.Logger, session *sessionWS, in
 		}
 	}
 
-	verbose, ok := session.Context().Value(ctxVerboseKey{}).(bool)
-	if !ok {
-		verbose = false
+	// Relay the message to Discord if the user is not a broadcaster, and has verbose set.
+	if session.Context().Value(ctxVerboseKey{}).(bool) && !strings.HasPrefix(session.Username(), "broadcaster:") {
+		return p.DiscordRTAPIRelay(logger, session, p.discordRegistry.GetBot(), in)
 	}
 
-	// DM the user on discord
-	if !strings.HasPrefix(session.Username(), "broadcaster:") && verbose {
-		content := ""
-		switch in.Message.(type) {
-		case *rtapi.Envelope_StatusPresenceEvent, *rtapi.Envelope_MatchPresenceEvent, *rtapi.Envelope_StreamPresenceEvent:
-		case *rtapi.Envelope_Party:
-			discordIDs := make([]string, 0)
-			leader := in.GetParty().GetLeader()
-			userIDs := make([]string, 0)
-
-			// Put leader first
-			if leader != nil {
-				userIDs = append(userIDs, leader.GetUserId())
-			}
-			for _, m := range in.GetParty().GetPresences() {
-				if m.GetUserId() == leader.GetUserId() {
-					continue
-				}
-				userIDs = append(userIDs, m.GetUserId())
-			}
-
-			for _, userID := range userIDs {
-				if discordID, err := GetDiscordIDByUserID(session.Context(), session.pipeline.db, userID); err != nil {
-					logger.Warn("Failed to get discord ID", zap.Error(err))
-					discordIDs = append(discordIDs, userID)
-				} else {
-					discordIDs = append(discordIDs, fmt.Sprintf("<@%s>", discordID))
-				}
-			}
-
-			content = fmt.Sprintf("Active party: %s", strings.Join(discordIDs, ", "))
-		case *rtapi.Envelope_PartyLeader:
-			if discordID, err := GetDiscordIDByUserID(session.Context(), session.pipeline.db, in.GetPartyLeader().GetPresence().GetUserId()); err != nil {
-				logger.Warn("Failed to get discord ID", zap.Error(err))
-				content = fmt.Sprintf("Party leader: %s", in.GetPartyLeader().GetPresence().GetUsername())
-			} else {
-				content = fmt.Sprintf("New party leader: <@%s>", discordID)
-			}
-
-		case *rtapi.Envelope_PartyJoinRequest:
-
-		case *rtapi.Envelope_PartyPresenceEvent:
-			event := in.GetPartyPresenceEvent()
-			joins := make([]string, 0)
-
-			for _, join := range event.GetJoins() {
-				if join.GetUserId() != session.UserID().String() {
-					if discordID, err := GetDiscordIDByUserID(session.Context(), session.pipeline.db, join.GetUserId()); err != nil {
-						logger.Warn("Failed to get discord ID", zap.Error(err))
-						joins = append(joins, join.GetUsername())
-					} else {
-						joins = append(joins, fmt.Sprintf("<@%s>", discordID))
-					}
-				}
-			}
-			leaves := make([]string, 0)
-			for _, leave := range event.GetLeaves() {
-				if discordID, err := GetDiscordIDByUserID(session.Context(), session.pipeline.db, leave.GetUserId()); err != nil {
-					logger.Warn("Failed to get discord ID", zap.Error(err))
-					leaves = append(leaves, leave.GetUsername())
-				} else {
-					leaves = append(leaves, fmt.Sprintf("<@%s>", discordID))
-				}
-			}
-
-			if len(joins) > 0 {
-				content += fmt.Sprintf("Party join: %s\n", strings.Join(joins, ", "))
-			}
-			if len(leaves) > 0 {
-				content += fmt.Sprintf("Party leave: %s\n", strings.Join(leaves, ", "))
-			}
-
-		default:
-			if data, err := json.MarshalIndent(in.GetMessage(), "", "  "); err != nil {
-				logger.Error("Failed to marshal message", zap.Error(err))
-			} else if len(data) > 2000 {
-				content = "Message too long to display"
-			} else if len(data) > 0 {
-				content = string("```json\n" + string(data) + "\n```")
-			}
-		}
-
-		if content != "" {
-			if dg := p.discordRegistry.GetBot(); dg == nil {
-				// No discord bot
-			} else if discordID, err := GetDiscordIDByUserID(session.Context(), session.pipeline.db, session.UserID().String()); err != nil {
-				logger.Warn("Failed to get discord ID", zap.Error(err))
-			} else if channel, err := dg.UserChannelCreate(discordID); err != nil {
-				logger.Warn("Failed to create DM channel", zap.Error(err))
-			} else if _, err = dg.ChannelMessageSend(channel.ID, content); err != nil {
-				logger.Warn("Failed to send message to user", zap.Error(err))
-			}
-		}
-	}
 	return nil, nil
 }
