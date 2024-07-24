@@ -900,29 +900,18 @@ func SetCosmeticDefaults(s *evr.ServerProfile, enableAll bool) error {
 	return nil
 }
 
-func (r *ProfileRegistry) LoadProfile(userID uuid.UUID, evrID evr.EvrId) (GameProfileData, error) {
+func (r *ProfileRegistry) LoadProfile(ctx context.Context, logger *zap.Logger, nk runtime.NakamaModule, discordRegistry DiscordRegistry, session *sessionWS, evrID evr.EvrID, groupID uuid.UUID) (GameProfileData, error) {
 
 	// Determine the display name
-	displayName, err := SetDisplayNameByChannelBySession(ctx, p.runtimeModule, logger, p.discordRegistry, session, label.GetGroupID().String())
+	displayName, err := SetDisplayNameByChannelBySession(ctx, nk, logger, discordRegistry, session, groupID.String())
 	if err != nil {
 		logger.Warn("Failed to set display name.", zap.Error(err))
 	}
 
-	// Set the profile's display name.
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
-	if !ok {
-		return fmt.Errorf("failed to get evrID from session context")
-	}
-
-	loginSession, ok := ctx.Value(ctxLoginSessionKey{}).(*sessionWS)
-	if !ok {
-		return fmt.Errorf("failed to get login session from session context")
-	}
-
-	profile, found := p.profileRegistry.Load(session.UserID(), evrID)
+	profile, found := r.Load(session.UserID(), evrID)
 	if !found {
 		defer session.Close("profile not found", runtime.PresenceReasonUnknown)
-		return fmt.Errorf("profile not found: %s", session.UserID())
+		return GameProfileData{}, fmt.Errorf("profile not found: %s", session.UserID())
 	}
 
 	profile.UpdateDisplayName(displayName)
@@ -952,11 +941,5 @@ func (r *ProfileRegistry) LoadProfile(userID uuid.UUID, evrID evr.EvrId) (GamePr
 		}
 		delete(serverProfile.Statistics, t)
 	}
-
-	// Add the user's profile to the cache (by EvrID)
-	err = p.profileCache.Add(matchID, evrID, serverProfile)
-	if err != nil {
-		logger.Warn("Failed to add profile to cache", zap.Error(err))
-	}
-
+	return profile, nil
 }

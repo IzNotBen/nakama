@@ -34,7 +34,7 @@ type LocalProfileCache struct {
 	ctxCancelFn context.CancelFunc
 
 	// Fast lookup of profiles for players already in matches
-	cache map[PresenceStream]string // Mode: StreamModeEvr, Subject: matchID, Subcontext: evrID.UUID() -> profile JSON
+	cache map[evr.EvrID]string // Mode: StreamModeEvr, Subject: matchID, Subcontext: evrID.UUID() -> profile JSON
 }
 
 func NewLocalProfileCache(tracker Tracker, profileExpirySec int64) *LocalProfileCache {
@@ -46,7 +46,7 @@ func NewLocalProfileCache(tracker Tracker, profileExpirySec int64) *LocalProfile
 
 		profileExpirySec: profileExpirySec,
 
-		cache:   make(map[PresenceStream]string),
+		cache:   make(map[evr.EvrID]string),
 		tracker: tracker,
 	}
 
@@ -59,13 +59,13 @@ func NewLocalProfileCache(tracker Tracker, profileExpirySec int64) *LocalProfile
 				return
 			case <-ticker.C:
 				s.Lock()
-				for stream := range s.cache {
+				for evrID := range s.cache {
 					if tracker.CountByStream(PresenceStream{
-						Mode:    StreamModeMatchAuthoritative,
-						Subject: stream.Subject,
-						Label:   stream.Label,
+						Mode:    StreamModeService,
+						Subject: evrID.UUID(),
+						Label:   StreamLabelMatchService,
 					}) == 0 {
-						delete(s.cache, stream)
+						delete(s.cache, evrID)
 					}
 				}
 				s.Unlock()
@@ -83,19 +83,7 @@ func (s *LocalProfileCache) Stop() {
 func (s *LocalProfileCache) IsValidProfile(matchID MatchID, evrID evr.EvrID) bool {
 	s.RLock()
 	defer s.RUnlock()
-	stream := PresenceStream{
-		Mode:       StreamModeService,
-		Subject:    matchID.UUID(),
-		Subcontext: evrID.UUID(),
-		Label:      matchID.Node(),
-	}
-
-	profile, found := s.cache[stream]
-	if !found {
-		return false
-	}
-
-	return profile != ""
+	return s.cache[evrID] != ""
 }
 
 func (s *LocalProfileCache) Add(matchID MatchID, evrID evr.EvrID, profile evr.ServerProfile) error {
@@ -103,61 +91,23 @@ func (s *LocalProfileCache) Add(matchID MatchID, evrID evr.EvrID, profile evr.Se
 	if err != nil {
 		return err
 	}
-	stream := PresenceStream{
-		Mode:       StreamModeService,
-		Subject:    matchID.UUID(),
-		Subcontext: evrID.UUID(),
-		Label:      matchID.Node(),
-	}
 	s.Lock()
-	s.cache[stream] = string(data)
+	s.cache[evrID] = string(data)
 	s.Unlock()
 	return nil
 }
 
 func (s *LocalProfileCache) Remove(matchID MatchID, evrID evr.EvrID) {
-	stream := PresenceStream{
-		Mode:       StreamModeService,
-		Subject:    matchID.UUID(),
-		Subcontext: evrID.UUID(),
-		Label:      matchID.Node(),
-	}
 	s.Lock()
-	delete(s.cache, stream)
+	delete(s.cache, evrID)
 	s.Unlock()
-}
-
-func (s *LocalProfileCache) RemoveAll(matchID MatchID) {
-	s.Lock()
-	for stream := range s.cache {
-		if stream.Subject == matchID.UUID() {
-			delete(s.cache, stream)
-		}
-	}
-	s.Unlock()
-}
-
-func (s *LocalProfileCache) GetByMatchIDByEvrID(matchID MatchID, evrID evr.EvrID) (data string, found bool) {
-	stream := PresenceStream{
-		Mode:       StreamModeService,
-		Subject:    matchID.UUID(),
-		Subcontext: evrID.UUID(),
-		Label:      matchID.Node(),
-	}
-
-	s.RLock()
-	p, ok := s.cache[stream]
-	s.RUnlock()
-	return p, ok
 }
 
 func (s *LocalProfileCache) GetByEvrID(evrID evr.EvrID) (data string, found bool) {
 	s.RLock()
 	defer s.RUnlock()
-	for s, p := range s.cache {
-		if s.Subcontext == evrID.UUID() {
-			return p, true
-		}
+	if profile, ok := s.cache[evrID]; ok {
+		return profile, true
 	}
 	return "", false
 }
