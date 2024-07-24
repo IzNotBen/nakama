@@ -120,6 +120,7 @@ type (
 	ctxFeaturesKey          struct{} // The features from the urlparam
 	ctxRequiredFeaturesKey  struct{} // The features from the urlparam
 	ctxVerboseKey           struct{} // The verbosity flag from matchmaking config
+	ctxMembershipsKey       struct{} // The guild group memberships
 
 	//ctxMatchmakingQueryKey         struct{} // The Matchmaking query from the urlparam
 	//ctxMatchmakingGuildPriorityKey struct{} // The Matchmaking guild priority from the urlparam
@@ -261,7 +262,7 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 	}
 }
 
-func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrID, deviceId *DeviceAuth, groupID uuid.UUID, flags int, verbose bool) error {
+func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrID, deviceId *DeviceAuth, memberships []GuildGroupMembership, flags int, verbose bool) error {
 	// Each player has a single login connection, which will act as the core session.
 	// When this connection is terminated, all other connections should be terminated.
 
@@ -281,8 +282,8 @@ func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrID
 	ctx = context.WithValue(ctx, ctxUserIDKey{}, uuid.FromStringOrNil(userID)) // apiServer compatibility
 	ctx = context.WithValue(ctx, ctxUsernameKey{}, username)                   // apiServer compatibility
 	ctx = context.WithValue(ctx, ctxFlagsKey{}, flags)
-	ctx = context.WithValue(ctx, ctxGroupIDKey{}, groupID)
 	ctx = context.WithValue(ctx, ctxVerboseKey{}, verbose)
+	ctx = context.WithValue(ctx, ctxMembershipsKey{}, memberships)
 
 	s.Lock()
 	s.ctx = ctx
@@ -734,9 +735,9 @@ func (s *sessionWS) Format() SessionFormat {
 	return s.format
 }
 
-// SendEvr sends a message to the client in the EchoVR format.
+// SendEVR sends a message to the client in the EchoVR format.
 // TODO Transition to using streamsend for all messages.
-func (s *sessionWS) SendEvr(messages ...evr.Message) error {
+func (s *sessionWS) SendEVR(messages ...evr.Message) error {
 
 	isDebug := s.logger.Core().Enabled(zap.DebugLevel)
 	// Send the EVR messages one at a time.
@@ -776,7 +777,7 @@ func (s *sessionWS) Send(envelope *rtapi.Envelope, reliable bool) error {
 		if err != nil {
 			return fmt.Errorf("could not process outgoing message: %w", err)
 		}
-		return s.SendEvr(messages...)
+		return s.SendEVR(messages...)
 	case SessionFormatProtobuf:
 		payload, err = proto.Marshal(envelope)
 	case SessionFormatJson:

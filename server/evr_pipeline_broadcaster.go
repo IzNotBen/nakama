@@ -42,7 +42,7 @@ func sendDiscordError(e error, discordId string, logger *zap.Logger, discordRegi
 // errFailedRegistration sends a failure message to the broadcaster and closes the session
 func errFailedRegistration(session *sessionWS, logger *zap.Logger, err error, code evr.BroadcasterRegistrationFailureCode) error {
 	logger.Warn("Failed to register game server", zap.Error(err))
-	if err := session.SendEvr(
+	if err := session.SendEVR(
 		evr.NewBroadcasterRegistrationFailure(code),
 	); err != nil {
 		return fmt.Errorf("failed to send lobby registration failure: %v", err)
@@ -171,7 +171,7 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 		return errFailedRegistration(session, logger, err, evr.BroadcasterRegistration_Failure)
 	}
 	// Send the registration success message
-	if err := session.SendEvr(
+	if err := session.SendEVR(
 		evr.NewBroadcasterRegistrationSuccess(config.ServerID, config.Endpoint.ExternalIP),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
@@ -684,7 +684,7 @@ func (p *EvrPipeline) broadcasterPlayerAccept(ctx context.Context, logger *zap.L
 		messages = append(messages, evr.NewGameServerEntrantsReject(evr.PlayerRejectionReasonBadRequest, rejected...))
 	}
 
-	return session.SendEvr(messages...)
+	return session.SendEVR(messages...)
 }
 
 // broadcasterPlayerRemoved is called when a player has been removed from the match.

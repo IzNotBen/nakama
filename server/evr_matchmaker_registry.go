@@ -288,7 +288,7 @@ func (mr *MatchmakingResult) SendErrorToSession(s *sessionWS, err error) error {
 	}
 
 	mr.Logger.Warn("Matchmaking error", zap.String("message", result.Message), zap.Error(result.err))
-	return s.SendEvr(evr.NewLobbySessionFailure(result.Mode, result.Channel, result.Code, result.Message).Version4())
+	return s.SendEVR(evr.NewLobbySessionFailure(result.Mode, result.Channel, result.Code, result.Message).Version4())
 }
 
 // MatchmakingRegistry is a registry for matchmaking sessions
@@ -339,7 +339,6 @@ type MatchmakingSettings struct {
 	GroupID                   string   `json:"group_id"`                    // Group ID to matchmake with
 	PriorityBroadcasters      []string `json:"priority_broadcasters"`       // Prioritize these broadcasters
 	NextMatchID               MatchID  `json:"next_match_id"`               // Try to join this match immediately when finding a match
-	Verbose                   bool     `json:"verbose"`                     // Send the user verbose messages via discord
 	DisableMatchmakerBackfill bool     `json:"disable_matchmaker_backfill"` // Disable backfilling from buildMatch
 }
 

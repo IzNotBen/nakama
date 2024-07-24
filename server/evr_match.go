@@ -95,14 +95,13 @@ const (
 	EvrBackfillModule   = "evrbackfill"
 )
 
-var _ runtime.Presence = &EvrMatchPresence{}
+var _ runtime.Presence = &EntrantPresence{}
 
 // Represents identity information for a single match participant.
-type EvrMatchPresence struct {
+type EntrantPresence struct {
 	Node           string    `json:"node,omitempty"`
 	SessionID      uuid.UUID `json:"session_id,omitempty"`
 	LoginSessionID uuid.UUID `json:"login_session_id,omitempty"`
-	EntrantID      uuid.UUID `json:"entrant_id,omitempty"`
 	UserID         uuid.UUID `json:"user_id,omitempty"`
 	EvrID          evr.EvrID `json:"evr_id,omitempty"`
 	DiscordID      string    `json:"discord_id,omitempty"`
@@ -112,11 +111,10 @@ type EvrMatchPresence struct {
 	DisplayName    string    `json:"display_name,omitempty"`
 	PartyID        uuid.UUID `json:"party_id,omitempty"`
 	RoleAlignment  int       `json:"role,omitempty"`
-	Query          string    `json:"query,omitempty"`
 	SessionExpiry  int64     `json:"session_expiry,omitempty"`
 }
 
-func (p EvrMatchPresence) String() string {
+func (p EntrantPresence) String() string {
 	data, err := json.Marshal(p)
 	if err != nil {
 		return ""
@@ -124,60 +122,56 @@ func (p EvrMatchPresence) String() string {
 	return string(data)
 }
 
-func (p EvrMatchPresence) GetUserId() string {
+func (p EntrantPresence) GetUserId() string {
 	return p.UserID.String()
 }
-func (p EvrMatchPresence) GetSessionId() string {
+func (p EntrantPresence) GetSessionId() string {
 	return p.SessionID.String()
 }
-func (p EvrMatchPresence) GetNodeId() string {
+func (p EntrantPresence) GetNodeId() string {
 	return p.Node
 }
-func (p EvrMatchPresence) GetHidden() bool {
+func (p EntrantPresence) GetHidden() bool {
 	return false
 }
-func (p EvrMatchPresence) GetPersistence() bool {
+func (p EntrantPresence) GetPersistence() bool {
 	return false
 }
-func (p EvrMatchPresence) GetUsername() string {
+func (p EntrantPresence) GetUsername() string {
 	return p.Username
 }
-func (p EvrMatchPresence) GetStatus() string {
+func (p EntrantPresence) GetStatus() string {
 	data, _ := json.Marshal(p)
 	return string(data)
 }
-func (p *EvrMatchPresence) GetReason() runtime.PresenceReason {
+func (p *EntrantPresence) GetReason() runtime.PresenceReason {
 	return runtime.PresenceReasonUnknown
 }
-func (p EvrMatchPresence) GetEvrID() string {
+func (p EntrantPresence) GetEvrID() string {
 	return p.EvrID.String()
 }
 
-func (p EvrMatchPresence) GetPlayerSession() string {
-	return p.EntrantID.String()
-}
-
-func (p EvrMatchPresence) IsPlayer() bool {
+func (p EntrantPresence) IsPlayer() bool {
 	return p.RoleAlignment != evr.TeamModerator && p.RoleAlignment != evr.TeamSpectator
 }
 
-func (p EvrMatchPresence) IsModerator() bool {
+func (p EntrantPresence) IsModerator() bool {
 	return p.RoleAlignment == evr.TeamModerator
 }
 
-func (p EvrMatchPresence) IsSpectator() bool {
+func (p EntrantPresence) IsSpectator() bool {
 	return p.RoleAlignment == evr.TeamSpectator
 }
 
-func (p EvrMatchPresence) IsSocial() bool {
+func (p EntrantPresence) IsSocial() bool {
 	return p.RoleAlignment == evr.TeamSocial
 }
 
 type JoinMetadata struct {
-	Presence EvrMatchPresence
+	Presence EntrantPresence
 }
 
-func NewJoinMetadata(p EvrMatchPresence) *JoinMetadata {
+func NewJoinMetadata(p EntrantPresence) *JoinMetadata {
 	return &JoinMetadata{Presence: p}
 }
 
@@ -202,7 +196,7 @@ func (m *JoinMetadata) UnmarshalMap(md map[string]string) error {
 
 type EvrMatchMeta struct {
 	MatchBroadcaster
-	Players []EvrMatchPresence `json:"players,omitempty"` // The displayNames of the players (by team name) in the match.
+	Players []EntrantPresence `json:"players,omitempty"` // The displayNames of the players (by team name) in the match.
 	// Stats
 }
 type PlayerInfo struct {
@@ -258,10 +252,10 @@ type EvrMatchState struct {
 	TeamSize    int       `json:"team_size,omitempty"`    // The size of each team in arena/combat (either 4 or 5)
 	TeamIndex   TeamIndex `json:"team,omitempty"`         // What team index a player prefers (Used by Matching only)
 
-	Players        []PlayerInfo                 `json:"players,omitempty"`         // The displayNames of the players (by team name) in the match.
-	TeamAlignments map[string]int               `json:"team_alignments,omitempty"` // map[userID]TeamIndex
-	presences      map[string]*EvrMatchPresence // [sessionId]EvrMatchPresence
-	broadcaster    runtime.Presence             // The broadcaster's presence
+	Players        []PlayerInfo                `json:"players,omitempty"`         // The displayNames of the players (by team name) in the match.
+	TeamAlignments map[string]int              `json:"team_alignments,omitempty"` // map[userID]TeamIndex
+	presences      map[string]*EntrantPresence // [sessionId]EvrMatchPresence
+	broadcaster    runtime.Presence            // The broadcaster's presence
 
 	emptyTicks            int64 // The number of ticks the match has been empty.
 	sessionStartExpiry    int64 // The tick count at which the match will be shut down if it has not started.
@@ -411,7 +405,7 @@ func NewEvrMatchState(endpoint evr.Endpoint, config *MatchBroadcaster) (state *E
 		Level:            evr.LevelUnloaded,
 		RequiredFeatures: make([]string, 0),
 		Players:          make([]PlayerInfo, 0, MatchMaxSize),
-		presences:        make(map[string]*EvrMatchPresence, MatchMaxSize),
+		presences:        make(map[string]*EntrantPresence, MatchMaxSize),
 		TeamAlignments:   make(map[string]int, MatchMaxSize),
 
 		emptyTicks: 0,
@@ -451,7 +445,7 @@ func (m *EvrMatch) MatchInit(ctx context.Context, logger runtime.Logger, db *sql
 	)
 
 	state.ID = MatchIDFromContext(ctx)
-	state.presences = make(map[string]*EvrMatchPresence)
+	state.presences = make(map[string]*EntrantPresence)
 
 	state.broadcasterJoinExpiry = state.tickRate * BroadcasterJoinTimeoutSecs
 
@@ -511,6 +505,7 @@ func (m *EvrMatch) MatchJoinAttempt(ctx context.Context, logger runtime.Logger, 
 	if reason != "" {
 		return state, false, reason
 	}
+	entrantID := uuid.NewV5(uuid.Nil, mp.GetEvrID())
 
 	state.presences[mp.GetSessionId()] = mp
 
@@ -519,7 +514,7 @@ func (m *EvrMatch) MatchJoinAttempt(ctx context.Context, logger runtime.Logger, 
 		"team":        mp.RoleAlignment,
 		"sid":         mp.GetSessionId(),
 		"uid":         mp.GetUserId(),
-		"entrant_sid": mp.EntrantID.String()}).Debug("Player joining the match.")
+		"entrant_sid": entrantID.String()}).Debug("Player joining the match.")
 
 	// Tell the broadcaster to load the match if it's not already started
 	if !state.Started {
@@ -536,7 +531,7 @@ func (m *EvrMatch) MatchJoinAttempt(ctx context.Context, logger runtime.Logger, 
 	return state, true, mp.String()
 }
 
-func (m *EvrMatch) playerJoinAttempt(state *EvrMatchState, mp EvrMatchPresence) (*EvrMatchPresence, string) {
+func (m *EvrMatch) playerJoinAttempt(state *EvrMatchState, mp EntrantPresence) (*EntrantPresence, string) {
 
 	// If this is a parking match, reject the player
 	if state.LobbyType == UnassignedLobby {
@@ -745,7 +740,7 @@ func (m *EvrMatch) MatchTerminate(ctx context.Context, logger runtime.Logger, db
 	if state.broadcaster != nil {
 		// Disconnect the players
 		for _, presence := range state.presences {
-			nk.SessionDisconnect(ctx, presence.GetPlayerSession(), runtime.PresenceReasonDisconnect)
+			nk.SessionDisconnect(ctx, presence.GetSessionId(), runtime.PresenceReasonDisconnect)
 		}
 		// Disconnect the broadcasters session
 		nk.SessionDisconnect(ctx, state.broadcaster.GetSessionId(), runtime.PresenceReasonDisconnect)

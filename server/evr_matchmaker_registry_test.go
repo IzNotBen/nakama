@@ -33,6 +33,7 @@ func Test_ipToKey(t *testing.T) {
 }
 
 func Test_distributeParties(t *testing.T) {
+
 	partyA1 := &MatchmakerEntry{}
 	partyA2 := &MatchmakerEntry{}
 	partyA3 := &MatchmakerEntry{}
@@ -42,7 +43,7 @@ func Test_distributeParties(t *testing.T) {
 	partyC1 := &MatchmakerEntry{}
 	partyD1 := &MatchmakerEntry{}
 	type args struct {
-		parties [][]*MatchmakerEntry
+		parties []MatchmakingParty
 	}
 	tests := []struct {
 		name string
@@ -52,22 +53,34 @@ func Test_distributeParties(t *testing.T) {
 		{
 			name: "Test Case 1",
 			args: args{
-				parties: [][]*MatchmakerEntry{
+				parties: []MatchmakingParty{
 					{
-						partyA1,
-						partyA2,
-						partyA3,
+						"partyA",
+						[]*MatchmakerEntry{
+							partyA1,
+							partyA2,
+							partyA3,
+						},
 					},
 					{
-						partyB1,
-						partyB2,
-						partyB3,
+						"partyB",
+						[]*MatchmakerEntry{
+							partyB1,
+							partyB2,
+							partyB3,
+						},
 					},
 					{
-						partyC1,
+						"partyC",
+						[]*MatchmakerEntry{
+							partyC1,
+						},
 					},
 					{
-						partyD1,
+						"partyD",
+						[]*MatchmakerEntry{
+							partyD1,
+						},
 					},
 				},
 			},

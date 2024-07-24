@@ -665,10 +665,12 @@ type GroupMetadata struct {
 }
 
 type AccountUserMetadata struct {
-	DisplayNameOverride string           `json:"display_name_override"` // The display name override
-	GlobalBanReason     string           `json:"global_ban_reason"`     // The global ban reason
-	ActiveGroupID       string           `json:"active_group_id"`       // The active group ID
-	Cosmetics           AccountCosmetics `json:"cosmetics"`             // The loadout
+	DisplayNameOverride string            `json:"display_name_override"` // The display name override
+	GlobalBanReason     string            `json:"global_ban_reason"`     // The global ban reason
+	ActiveGroupID       string            `json:"active_group_id"`       // The active group ID
+	Cosmetics           AccountCosmetics  `json:"cosmetics"`             // The loadout
+	GuildDisplayNames   map[string]string `json:"guild_display_names"`   // The display names for guilds
+	Verbose             bool              `json:"verbose"`               // The verbose flag
 }
 
 func (a *AccountUserMetadata) GetActiveGroupID() uuid.UUID {
@@ -785,22 +787,23 @@ func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModu
 	if account, err = nk.AccountGetId(ctx, userID); err != nil {
 		return "", fmt.Errorf("error getting account: %w", err)
 	}
-	user := account.GetUser()
-	username := account.GetUser().GetUsername()
-	displayName = user.GetDisplayName()
-
-	// If the account has an override, use that
-	md := AccountUserMetadata{}
-	if err = json.Unmarshal([]byte(user.GetMetadata()), &md); err != nil {
-		return displayName, fmt.Errorf("error unmarshalling account metadata: %w", err)
+	md := &AccountUserMetadata{}
+	if err := json.Unmarshal([]byte(account.User.Metadata), md); err != nil {
+		return "", fmt.Errorf("error unmarshalling account metadata: %w", err)
 	}
+
+	// If the account has an override, set the display name to the override.
 	if md.DisplayNameOverride != "" {
 		displayName = md.DisplayNameOverride
 		if err = nk.AccountUpdateId(ctx, userID, "", nil, md.DisplayNameOverride, "", "", "", ""); err != nil {
-			return displayName, fmt.Errorf("error updating account: %w", err)
+			return account.GetUser().GetDisplayName(), fmt.Errorf("error updating account: %w", err)
 		}
 		return displayName, nil
 	}
+
+	user := account.GetUser()
+	username := account.GetUser().GetUsername()
+	displayName = user.GetDisplayName()
 
 	// Get the discordID from the account's customID
 	discordID := account.GetCustomId()
@@ -817,6 +820,9 @@ func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModu
 	options = append(options, discordUser.Username)
 	options = append(options, discordUser.GlobalName)
 	options = append(options, displayName)
+
+	// Update the membership data
+	memberships := ctx.Value(ctxMembershipsKey{}).([]GuildGroupMembership)
 
 	gid := uuid.FromStringOrNil(groupID)
 	// Get the guild
@@ -835,6 +841,11 @@ func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModu
 			}
 			if guildMember != nil {
 				options = append(options, guildMember.Nick)
+			}
+			for _, m := range memberships {
+				if m.GuildGroup.ID() == gid {
+					m.DisplayName.Store(displayName)
+				}
 			}
 		}
 	}
@@ -873,12 +884,26 @@ func SetDisplayNameByChannelBySession(ctx context.Context, nk runtime.NakamaModu
 		}
 	}
 
+	// Update the metadata with membership displayNames
+	nameMap := make(map[string]string)
+	for _, m := range memberships {
+		nameMap[m.GuildGroup.ID().String()] = m.DisplayName.Load()
+	}
+
+	md.GuildDisplayNames = nameMap
+
+	mdMap, err := md.MarshalToMap()
+	if err != nil {
+		return "", fmt.Errorf("error marshalling account metadata: %w", err)
+	}
+
 	// Update the account
 	accountUpdates := []*runtime.AccountUpdate{
 		{
 			UserID:      userID,
 			Username:    username,
 			DisplayName: displayName,
+			Metadata:    mdMap,
 		},
 	}
 	storageWrites := []*runtime.StorageWrite{

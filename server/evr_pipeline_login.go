@@ -58,7 +58,7 @@ func msgFailedLoginFn(session *sessionWS, evrID evr.EvrID, err error) error {
 	errMessage := wordwrap.String(s, 60)
 
 	// Send the messages
-	if err := session.SendEvr(
+	if err := session.SendEVR(
 		evr.NewLoginFailure(evrID, errMessage),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
@@ -112,7 +112,7 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 
 	// Let the client know that the login was successful.
 	// Send the login success message and the login settings.
-	return session.SendEvr(
+	return session.SendEVR(
 		evr.NewLoginSuccess(session.id, request.EvrID),
 		evr.NewSTcpConnectionUnrequireEvent(),
 		gameSettings,
@@ -130,7 +130,7 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		return settings, fmt.Errorf("account not found")
 	}
 	user := account.GetUser()
-	userId := user.GetId()
+	userID := user.GetId()
 	uid := uuid.FromStringOrNil(user.GetId())
 
 	updateCtx, cancel := context.WithTimeout(ctx, time.Second*3)
@@ -159,14 +159,14 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 
 	if len(otherLogins) > 0 {
 		// Check if the user is the owner of the EVR-ID
-		if otherLogins[0].UserID != uuid.FromStringOrNil(userId) {
-			session.logger.Warn("EVR-ID is already in use", zap.String("evrID", evrID.String()), zap.String("userId", userId))
+		if otherLogins[0].UserID != uuid.FromStringOrNil(userID) {
+			session.logger.Warn("EVR-ID is already in use", zap.String("evrID", evrID.String()), zap.String("userId", userID))
 		}
 	}
 
 	// If user ID is not empty, write out the login payload to storage.
-	if userId != "" {
-		if err := writeAuditObjects(ctx, session, userId, evrID.String(), loginProfile); err != nil {
+	if userID != "" {
+		if err := writeAuditObjects(ctx, session, userID, evrID.String(), loginProfile); err != nil {
 			session.logger.Warn("Failed to write audit objects", zap.Error(err))
 		}
 	}
@@ -187,10 +187,7 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	// Get the GroupID from the user's metadata
 	groupID := metadata.GetActiveGroupID()
 	// Validate that the user is in the group
-	if groupID == uuid.Nil {
-		// Get the group ID from the user's profile
-		groupID = profile.GetChannel()
-	}
+
 	// Get a list of the user's guild memberships and set to the largest one
 	memberships, err := p.discordRegistry.GetGuildGroupMemberships(ctx, uid, nil)
 	if err != nil {
@@ -199,14 +196,20 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	if len(memberships) == 0 {
 		return settings, fmt.Errorf("user is not in any guild groups")
 	}
+
 	// Sort the groups by the edgecount
 	sort.SliceStable(memberships, func(i, j int) bool {
+		if memberships[i].GuildGroup.ID() == groupID {
+			return true
+		}
 		return memberships[i].GuildGroup.Size() > memberships[j].GuildGroup.Size()
 	})
+
 	groupID = memberships[0].GuildGroup.ID()
 
+	verbose := metadata.Verbose
 	// Initialize the full session
-	if err := session.LoginSession(userId, user.GetUsername(), evrID, deviceId, groupID, flags, verbose); err != nil {
+	if err := session.LoginSession(userID, user.GetUsername(), evrID, deviceId, memberships, flags, verbose); err != nil {
 		return settings, fmt.Errorf("failed to login: %w", err)
 	}
 	ctx = session.Context()
@@ -218,12 +221,11 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		return evr.NewDefaultGameSettings(), fmt.Errorf("failed to load game profiles")
 	}
 
-	// Set the display name once.
 	displayName, err := SetDisplayNameByChannelBySession(ctx, p.runtimeModule, logger, p.discordRegistry, session, groupID.String())
 	if err != nil {
-		logger.Warn("Failed to set display name", zap.Error(err))
+		return settings, fmt.Errorf("failed to set display name: %w", err)
 	}
-
+	// Get the display name currently set on the account.
 	profile.SetChannel(evr.GUID(groupID))
 	profile.UpdateDisplayName(displayName)
 	p.profileRegistry.Store(session.userID, profile)
@@ -397,7 +399,7 @@ func (p *EvrPipeline) channelInfoRequest(ctx context.Context, logger *zap.Logger
 	}
 
 	// send the document to the client
-	if err := session.SendEvr(
+	if err := session.SendEVR(
 		evr.NewSNSChannelInfoResponse(resource),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
@@ -461,10 +463,10 @@ func (p *EvrPipeline) loggedInUserProfileRequest(ctx context.Context, logger *za
 
 	profile, found := p.profileRegistry.Load(session.userID, evrID)
 	if !found {
-		return session.SendEvr(evr.NewLoggedInUserProfileFailure(request.EvrID, 400, "failed to load game profiles"))
+		return session.SendEVR(evr.NewLoggedInUserProfileFailure(request.EvrID, 400, "failed to load game profiles"))
 	}
 
-	return session.SendEvr(evr.NewLoggedInUserProfileSuccess(evrID, profile.Client, profile.Server))
+	return session.SendEVR(evr.NewLoggedInUserProfileSuccess(evrID, profile.Client, profile.Server))
 }
 
 func (p *EvrPipeline) updateClientProfileRequest(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
@@ -479,14 +481,14 @@ func (p *EvrPipeline) updateClientProfileRequest(ctx context.Context, logger *za
 
 	if _, err := p.profileRegistry.UpdateClientProfile(ctx, logger, session, request.ClientProfile); err != nil {
 		code := 400
-		if err := session.SendEvr(evr.NewUpdateProfileFailure(evrID, uint64(code), err.Error())); err != nil {
+		if err := session.SendEVR(evr.NewUpdateProfileFailure(evrID, uint64(code), err.Error())); err != nil {
 			return fmt.Errorf("send UpdateProfileFailure: %w", err)
 		}
 		return fmt.Errorf("UpdateProfile: %w", err)
 	}
 
 	// Send the profile update to the client
-	if err := session.SendEvr(
+	if err := session.SendEVR(
 		evr.NewSNSUpdateProfileSuccess(&evrID),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
@@ -675,7 +677,7 @@ func (p *EvrPipeline) documentRequest(ctx context.Context, logger *zap.Logger, s
 		return fmt.Errorf("unknown document: %s,%s", request.Language, request.Type)
 	}
 
-	session.SendEvr(
+	session.SendEVR(
 		evr.NewDocumentSuccess(document),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	)
@@ -783,11 +785,11 @@ func (p *EvrPipeline) genericMessage(ctx context.Context, logger *zap.Logger, se
 
 		msg := evr.NewGenericMessageNotify(request.MessageType, request.Session, request.RoomID, request.PartyData)
 
-		if err := otherSession.SendEvr(msg); err != nil {
+		if err := otherSession.SendEVR(msg); err != nil {
 			return fmt.Errorf("failed to send generic message: %w", err)
 		}
 
-		if err := session.SendEvr(msg); err != nil {
+		if err := session.SendEVR(msg); err != nil {
 			return fmt.Errorf("failed to send generic message success: %w", err)
 		}
 
@@ -816,7 +818,7 @@ func (p *EvrPipeline) userServerProfileUpdateRequest(ctx context.Context, logger
 	request := in.(*evr.UserServerProfileUpdateRequest)
 
 	defer func() {
-		if err := session.SendEvr(evr.NewUserServerProfileUpdateSuccess(request.EvrID)); err != nil {
+		if err := session.SendEVR(evr.NewUserServerProfileUpdateSuccess(request.EvrID)); err != nil {
 			logger.Warn("Failed to send UserServerProfileUpdateSuccess", zap.Error(err))
 		}
 	}()
@@ -942,17 +944,11 @@ func (p *EvrPipeline) otherUserProfileRequest(ctx context.Context, logger *zap.L
 
 	var data string
 	var found bool
-	if !matchID.IsNil() {
-		// This is probably a broadcaster connection. pull any profile for this EvrID from the cache.
-		data, found = p.profileCache.GetByMatchIDByEvrID(matchID, request.EvrID)
-		if !found {
-			return fmt.Errorf("failed to find profile for `%s` in match `%s`", request.EvrID.String(), matchID.String())
-		}
-	} else {
-		data, found = p.profileCache.GetByEvrID(request.EvrID)
-		if !found {
-			return fmt.Errorf("failed to find profile for `%s`", request.EvrID.String())
-		}
+
+	// This is probably a broadcaster connection. pull any profile for this EvrID from the cache.
+	data, found = p.profileCache.GetByEvrID(request.EvrID)
+	if !found {
+		return fmt.Errorf("failed to find profile for `%s` in match `%s`", request.EvrID.String(), matchID.String())
 	}
 
 	// Construct the response
@@ -962,7 +958,7 @@ func (p *EvrPipeline) otherUserProfileRequest(ctx context.Context, logger *zap.L
 	}
 
 	// Send the profile to the client
-	if err := session.SendEvr(response); err != nil {
+	if err := session.SendEVR(response); err != nil {
 		return fmt.Errorf("failed to send OtherUserProfileSuccess: %w", err)
 	}
 	return nil

@@ -429,16 +429,7 @@ func (p *EvrPipeline) MatchCreate(ctx context.Context, session *sessionWS, msess
 	return matchID, nil
 }
 
-func (p *EvrPipeline) JoinEvrMatchParty(ctx context.Context, logger *zap.Logger, matchID MatchID, presences []*EvrMatchPresence) error {
-	// This will atomically join the party to the match
-	label, presence, _, err := EVRMatchJoinAttempt(ctx, logger, matchID, p.sessionRegistry, p.matchRegistry, p.tracker, mp)
-	if err != nil {
-		return fmt.Errorf("failed to join match: %w", err)
-	}
-}
-
-
-	// JoinEvrMatch allows a player to join a match.
+// JoinEvrMatch allows a player to join a match.
 func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, session *sessionWS, query string, matchID MatchID, teamIndex int) error {
 	// Append the node to the matchID if it doesn't already contain one.
 
@@ -453,35 +444,50 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 		partyID = msession.Party.ID()
 	}
 
+	evrID := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
+	profile, _ := p.profileRegistry.Load(session.userID, evrID)
+
+	// Add the user's profile to the cache (by EvrID)
+	err = p.profileCache.Add(matchID, evrID, profile.GetServer())
+	if err != nil {
+		logger.Warn("Failed to add profile to cache", zap.Error(err))
+	}
+
+	memberships := ctx.Value(ctxMembershipsKey{}).([]GuildGroupMembership)
+
+	membership := memberships[0]
+	for _, m := range memberships {
+		if membership.GuildGroup.ID() == label.GetGroupID() {
+			membership = m
+			break
+		}
+	}
+
 	// Prepare the player session metadata.
 	discordID, err := GetDiscordIDByUserID(ctx, p.db, session.userID.String())
 	if err != nil {
 		logger.Error("Failed to get discord id", zap.Error(err))
 	}
+	loginSession := ctx.Value(ctxLoginSessionKey{}).(*sessionWS)
 
-	mp := EvrMatchPresence{
-		EntrantID:      uuid.NewV5(matchID.UUID(), evrID.String()),
+	mp := &EntrantPresence{
+
 		Node:           p.node,
 		UserID:         session.userID,
 		SessionID:      session.id,
 		LoginSessionID: loginSession.id,
 		Username:       session.Username(),
-		DisplayName:    displayName,
+		DisplayName:    membership.DisplayName.String(),
 		EvrID:          evrID,
 		PartyID:        partyID,
 		RoleAlignment:  int(teamIndex),
 		DiscordID:      discordID,
-		Query:          query,
 		ClientIP:       session.clientIP,
 		ClientPort:     session.clientPort,
 	}
 
-	return mp
-}
-
-
 	logger.Debug("Joining match", zap.String("mid", matchID.UUID().String()))
-	label, presence, _, err = EVRMatchJoinAttempt(ctx, logger, matchID, p.sessionRegistry, p.matchRegistry, p.tracker, mp)
+	label, mp, _, err = EVRMatchJoinAttempt(ctx, logger, matchID, p.sessionRegistry, p.matchRegistry, p.tracker, *mp)
 	if err != nil {
 		if err == ErrDuplicateJoin {
 			logger.Warn("Player already in match. Ignoring join attempt.", zap.String("mid", matchID.UUID().String()), zap.Error(err))
@@ -501,14 +507,14 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 	}
 
 	// Send the lobbysessionSuccess, this will trigger the broadcaster to send a lobbysessionplayeraccept once the player connects to the broadcaster.
-	msg := evr.NewLobbySessionSuccess(label.Mode, label.ID.UUID(), label.GetGroupID(), label.GetEndpoint(), int16(presence.RoleAlignment))
+	msg := evr.NewLobbySessionSuccess(label.Mode, label.ID.UUID(), label.GetGroupID(), label.GetEndpoint(), int16(mp.RoleAlignment))
 	messages := []evr.Message{msg.Version4(), msg.Version5(), evr.NewSTcpConnectionUnrequireEvent()}
 
-	if err = bsession.SendEvr(messages...); err != nil {
+	if err = bsession.SendEVR(messages...); err != nil {
 		return fmt.Errorf("failed to send messages to broadcaster: %w", err)
 	}
 
-	if err = session.SendEvr(messages...); err != nil {
+	if err = session.SendEVR(messages...); err != nil {
 		err = fmt.Errorf("failed to send messages to player: %w", err)
 	}
 	if msession != nil {
@@ -519,7 +525,7 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 
 var ErrDuplicateJoin = errors.New(JoinRejectReasonDuplicateJoin)
 
-func EVRMatchJoinAttempt(ctx context.Context, logger *zap.Logger, matchID MatchID, sessionRegistry SessionRegistry, matchRegistry MatchRegistry, tracker Tracker, presence EvrMatchPresence) (*EvrMatchState, *EvrMatchPresence, []*MatchPresence, error) {
+func EVRMatchJoinAttempt(ctx context.Context, logger *zap.Logger, matchID MatchID, sessionRegistry SessionRegistry, matchRegistry MatchRegistry, tracker Tracker, presence EntrantPresence) (*EvrMatchState, *EntrantPresence, []*MatchPresence, error) {
 
 	matchIDStr := matchID.String()
 	metadata := JoinMetadata{Presence: presence}.MarshalMap()
@@ -541,15 +547,15 @@ func EVRMatchJoinAttempt(ctx context.Context, logger *zap.Logger, matchID MatchI
 	} else if !isNew {
 		return label, nil, presences, ErrDuplicateJoin
 	}
-
-	presence = EvrMatchPresence{}
+	entrantID := uuid.NewV5(matchID.uuid, presence.EvrID.String())
+	presence = EntrantPresence{}
 	if err := json.Unmarshal([]byte(reason), &presence); err != nil {
 		return label, nil, presences, fmt.Errorf("failed to unmarshal attempt response: %w", err)
 	}
 
 	ops := []*TrackerOp{
 		{
-			PresenceStream{Mode: StreamModeEntrant, Subject: matchID.uuid, Subcontext: presence.EntrantID, Label: matchID.node},
+			PresenceStream{Mode: StreamModeEntrant, Subject: matchID.uuid, Subcontext: entrantID, Label: matchID.node},
 			PresenceMeta{Format: SessionFormatEvr, Username: presence.Username, Status: presence.String(), Hidden: true},
 		},
 		{
@@ -631,7 +637,7 @@ func (p *EvrPipeline) GetLatencyMetricByEndpoint(ctx context.Context, msession *
 // sendPingRequest sends a ping request to the given candidates.
 func (p *EvrPipeline) sendPingRequest(logger *zap.Logger, session *sessionWS, candidates []evr.Endpoint) error {
 
-	if err := session.SendEvr(
+	if err := session.SendEVR(
 		evr.NewLobbyPingRequest(275, candidates),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
@@ -775,10 +781,10 @@ func (p *EvrPipeline) checkSuspensionStatus(ctx context.Context, logger *zap.Log
 }
 
 // selectTeamForPlayer decides which team27 to assign a player to.
-func selectTeamForPlayer(presence *EvrMatchPresence, state *EvrMatchState) (int, bool) {
+func selectTeamForPlayer(presence *EntrantPresence, state *EvrMatchState) (int, bool) {
 	t := presence.RoleAlignment
 
-	teams := lo.GroupBy(lo.Values(state.presences), func(p *EvrMatchPresence) int { return p.RoleAlignment })
+	teams := lo.GroupBy(lo.Values(state.presences), func(p *EntrantPresence) int { return p.RoleAlignment })
 
 	blueTeam := teams[evr.TeamBlue]
 	orangeTeam := teams[evr.TeamOrange]
@@ -949,9 +955,9 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 
 			// Join all the party members to the match
 			for _, presence := range msession.Party.GetMembers() {
-				ms, ok := p.matchmakingRegistry.GetMatchingBySessionId(presence.SessionID)
+				ms, ok := p.matchmakingRegistry.GetMatchingBySessionId(uuid.FromStringOrNil(presence.Presence.GetSessionId()))
 				if !ok {
-					logger.Debug("Session not found in matchmaking registry", zap.String("sid", presence.SessionID.String()))
+					logger.Debug("Session not found in matchmaking registry", zap.String("sid", presence.Presence.GetSessionId()))
 					continue
 				}
 				if err := p.JoinEvrMatch(ctx, ms.Logger, ms.Session, query, label.ID, evr.TeamUnassigned); err != nil {
@@ -963,18 +969,19 @@ func (p *EvrPipeline) MatchBackfillLoop(session *sessionWS, msession *Matchmakin
 			// If the backfill was successful, stop the backfill loop
 			return nil
 		}
-		// After trying to backfill, try to create a match on an interval
-		select {
-		case <-createTicker.C:
-			if create && p.createLobbyMu.TryLock() {
-				if _, err := p.MatchCreate(ctx, session, msession, msession.Label); err != nil {
-					logger.Warn("Failed to create match", zap.Error(err))
+		// Only social lobbies get created
+		if msession.Label.Mode == evr.ModeSocialPublic {
+			select {
+			case <-createTicker.C:
+				if p.createLobbyMu.TryLock() {
+					if _, err := p.MatchCreate(ctx, session, msession, msession.Label); err != nil {
+						logger.Warn("Failed to create match", zap.Error(err))
+					}
+					p.createLobbyMu.Unlock()
 				}
-				p.createLobbyMu.Unlock()
+			default:
 			}
-		default:
 		}
-
 	}
 }
 
@@ -1175,7 +1182,7 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 	case evr.ModeSocialPublic:
 		// Continue to try to backfill
 
-		go p.MatchBackfillLoop(session, msession, true, 1)
+		go p.MatchBackfillLoop(session, msession)
 
 	case evr.ModeArenaPublic:
 
@@ -1183,7 +1190,7 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 		if msession.Party == nil || msession.Party.IsLeader() {
 
 			// Don't backfill party members, let the matchmaker handle it.
-			go p.MatchBackfillLoop(session, msession, false)
+			go p.MatchBackfillLoop(session, msession)
 
 			// Put a ticket in for matching
 			_, err := p.MatchMake(session, msession)
@@ -1299,7 +1306,7 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 		// Join any on-going combat match without delay
 		skipBackfillDelay = false
 		// Start the backfill loop, if the player is not in a party.
-		go p.MatchBackfillLoop(session, msession, skipBackfillDelay, false, 1)
+		go p.MatchBackfillLoop(session, msession)
 
 		// Put a ticket in for matching
 		_, err = p.MatchMake(session, msession)

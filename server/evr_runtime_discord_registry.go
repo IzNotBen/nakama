@@ -17,6 +17,7 @@ import (
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
+	"go.uber.org/atomic"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -419,17 +420,18 @@ type GuildGroupMembership struct {
 	isModerator  bool // Admin
 	isServerHost bool // Broadcaster Host
 	canAllocate  bool // Can allocate servers with slash command
+	DisplayName  *atomic.String
 }
 
-func NewGuildGroupMembership(group *api.Group, userID uuid.UUID, state api.UserGroupList_UserGroup_State) GuildGroupMembership {
+func NewGuildGroupMembership(group *api.Group, userID uuid.UUID, state api.UserGroupList_UserGroup_State, displayName string) GuildGroupMembership {
 	gg := NewGuildGroup(group)
-
 	return GuildGroupMembership{
 		GuildGroup:   *gg,
 		isMember:     state <= api.UserGroupList_UserGroup_MEMBER,
 		isModerator:  state <= api.UserGroupList_UserGroup_ADMIN,
 		isServerHost: slices.Contains(gg.ServerHostUserIDs(), userID.String()),
 		canAllocate:  slices.Contains(gg.AllocatorUserIDs(), userID.String()),
+		DisplayName:  atomic.NewString(displayName),
 	}
 }
 
@@ -439,6 +441,19 @@ func (r *LocalDiscordRegistry) GetGuildGroupMemberships(ctx context.Context, use
 	if userID == uuid.Nil {
 		return nil, fmt.Errorf("userId is required")
 	}
+
+	account, err := r.nk.AccountGetId(ctx, userID.String())
+	if err != nil {
+		return nil, fmt.Errorf("error getting account: %w", err)
+	}
+	md := &AccountUserMetadata{}
+	if err := json.Unmarshal([]byte(account.GetUser().GetMetadata()), md); err != nil {
+		return nil, fmt.Errorf("error unmarshalling group metadata: %w", err)
+	}
+	if md.GuildDisplayNames == nil {
+		md.GuildDisplayNames = make(map[string]string)
+	}
+
 	userIDStr := userID.String()
 	memberships := make([]GuildGroupMembership, 0)
 	cursor := ""
@@ -457,7 +472,12 @@ func (r *LocalDiscordRegistry) GetGuildGroupMemberships(ctx context.Context, use
 				continue
 			}
 
-			membership := NewGuildGroupMembership(g, userID, api.UserGroupList_UserGroup_State(ug.GetState().GetValue()))
+			displayName := md.GuildDisplayNames[g.GetId()]
+			if displayName == "" {
+				displayName = account.GetUser().GetDisplayName()
+			}
+
+			membership := NewGuildGroupMembership(g, userID, api.UserGroupList_UserGroup_State(ug.GetState().GetValue()), displayName)
 
 			memberships = append(memberships, membership)
 		}
@@ -495,7 +515,7 @@ func (r *LocalDiscordRegistry) UpdateAccount(ctx context.Context, userID uuid.UU
 	}
 
 	// Get the nakama account for this discord user
-	userId, err := r.GetUserIdByDiscordId(ctx, discordId, true)
+	userId, err := GetUserIDByDiscordID(ctx, r.pipeline.db, discordId)
 	if err != nil {
 		return fmt.Errorf("error getting nakama user: %v", err)
 	}
@@ -508,12 +528,12 @@ func (r *LocalDiscordRegistry) UpdateAccount(ctx context.Context, userID uuid.UU
 
 	// Update the basic account details
 
-	if err := r.nk.AccountUpdateId(ctx, userId.String(), username, nil, "", "", "", langTag, avatar); err != nil {
+	if err := r.nk.AccountUpdateId(ctx, userId, username, nil, "", "", "", langTag, avatar); err != nil {
 		r.logger.Error("Error updating account %s: %v", username, err)
 	}
 
-	r.Store(discordId, userId.String())
-	r.Store(userId.String(), discordId)
+	r.Store(discordId, userId)
+	r.Store(userId, discordId)
 
 	return nil
 }
@@ -525,7 +545,7 @@ func (r *LocalDiscordRegistry) UpdateGuildGroup(ctx context.Context, logger runt
 	}
 	userIDStrs := []string{userID.String()}
 	// Get teh user's discordID
-	discordID, err := r.GetDiscordIdByUserId(ctx, userID)
+	discordID, err := GetDiscordIDByUserID(ctx, r.pipeline.db, userID.String())
 	if err != nil {
 		return fmt.Errorf("error getting discord id: %v", err)
 	}

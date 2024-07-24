@@ -768,7 +768,7 @@ AND ge.source_id = $3 AND ge.state >= 0 AND ge.state <= $4;
 	return true, nil
 }
 
-func PresenceByEntrantID(nk runtime.NakamaModule, matchID MatchID, entrantID uuid.UUID) (presence *EvrMatchPresence, err error) {
+func PresenceByEntrantID(nk runtime.NakamaModule, matchID MatchID, entrantID uuid.UUID) (presence *EntrantPresence, err error) {
 
 	presences, err := nk.StreamUserList(StreamModeEntrant, matchID.UUID().String(), entrantID.String(), matchID.Node(), true, true)
 	if err != nil {
@@ -783,7 +783,7 @@ func PresenceByEntrantID(nk runtime.NakamaModule, matchID MatchID, entrantID uui
 		return nil, ErrorMultipleEntrantsFound
 	}
 
-	mp := &EvrMatchPresence{}
+	mp := &EntrantPresence{}
 	if err := json.Unmarshal([]byte(presences[0].GetStatus()), mp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal presence: %w", err)
 	}

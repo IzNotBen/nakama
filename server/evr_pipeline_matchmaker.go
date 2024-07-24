@@ -30,7 +30,7 @@ func (p *EvrPipeline) lobbyMatchmakerStatusRequest(ctx context.Context, logger *
 	_ = in.(*evr.LobbyMatchmakerStatusRequest)
 
 	// TODO Check if the matchmaking ticket is still open
-	err := session.SendEvr(evr.NewLobbyMatchmakerStatusResponse())
+	err := session.SendEVR(evr.NewLobbyMatchmakerStatusResponse())
 	if err != nil {
 		return fmt.Errorf("LobbyMatchmakerStatus: %v", err)
 	}
@@ -202,8 +202,8 @@ func (p *EvrPipeline) matchmakingLabelFromFindRequest(ctx context.Context, sessi
 			Features:    features,
 		},
 	}
-	if !request.CurrentLobbySessionID.IsNil() {
-		ml.ID = MatchID{request.CurrentLobbySessionID, p.node} // The existing lobby/match that the player is in (if any)
+	if !request.CurrentLobbyID.IsNil() {
+		ml.ID = MatchID{request.CurrentLobbyID, p.node} // The existing lobby/match that the player is in (if any)
 	}
 
 	// Check if the team index is valid for the mode
@@ -235,12 +235,12 @@ func (p *EvrPipeline) lobbyFindSessionRequest(ctx context.Context, logger *zap.L
 		"mode":     request.Mode.String(),
 		"channel":  ml.GroupID.String(),
 		"level":    request.Level.String(),
-		"team_idx": strconv.FormatInt(int64(request.GetAlignment()), 10),
+		"team_idx": strconv.FormatInt(int64(request.GetRoleAlignment()), 10),
 	}
 	p.metrics.CustomCounter("lobbyfindsession_active_count", metricsTags, 1)
 
 	// Check for suspensions on this channel, if this is a request for a public match.
-	if err := p.authorizeMatchmaking(ctx, logger, session, request.LoginSession, *ml.GroupID, true); err != nil {
+	if err := p.authorizeMatchmaking(ctx, logger, session, request.LoginSessionID, *ml.GroupID, true); err != nil {
 		switch status.Code(err) {
 		case codes.Internal:
 			logger.Warn("Failed to authorize matchmaking, allowing player to continue. ", zap.Error(err))
@@ -546,5 +546,5 @@ func (p *EvrPipeline) lobbyPlayerSessionsRequest(ctx context.Context, logger *za
 
 	entrant := evr.NewLobbyEntrant(message.EvrID, message.LobbyID, entrantID, entrantIDs, int16(presence.RoleAlignment))
 
-	return session.SendEvr(entrant.VersionU(), entrant.Version2(), entrant.Version3())
+	return session.SendEVR(entrant.VersionU(), entrant.Version2(), entrant.Version3())
 }
