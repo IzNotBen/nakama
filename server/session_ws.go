@@ -937,3 +937,26 @@ func (s *sessionWS) Close(msg string, reason runtime.PresenceReason, envelopes .
 		fn(s.userID.String(), s.username.Load(), s.vars, s.expiry, s.id.String(), s.clientIP, s.clientPort, s.lang, time.Now().UTC().Unix(), msg)
 	}
 }
+
+func (s *sessionWS) CloseEVR(msg string, reason runtime.PresenceReason, messages ...evr.Message) {
+	// Send the EVR messages one at a time.
+	var message evr.Message
+	for _, message = range messages {
+		if message == nil {
+			continue
+		}
+		// Marshal the message.
+		payload, err := evr.Marshal(message)
+		if err != nil {
+			return
+		}
+		// Send the message.
+		if err := s.SendBytes(payload, true); err != nil {
+			return
+		}
+	}
+
+	// Stop processing incoming packets
+
+	return
+}

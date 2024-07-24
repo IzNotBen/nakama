@@ -140,7 +140,7 @@ func NewEvrPipeline(logger *zap.Logger, startupLogger *zap.Logger, db *sql.DB, p
 	if err != nil {
 		logger.Fatal("Failed to authenticate broadcaster", zap.Error(err))
 	}
-	pipelineNG := NewEVRPipelineNG(config, nk, db, matchRegistry, sessionRegistry, tracker, metrics)
+	pipelineNG := NewEVRPipelineNG(config, nk, db, matchRegistry, sessionRegistry, tracker, metrics, discordRegistry)
 
 	evrPipeline := &EvrPipeline{
 		ctx:                  ctx,
