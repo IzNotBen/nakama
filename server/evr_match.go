@@ -699,8 +699,11 @@ func (m *EvrMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sql
 				logger.Error("Unknown opcode: %v", in.GetOpCode())
 				continue
 			}
+			logger.WithFields(map[string]interface{}{
+				"username":   in.GetUsername(),
+				"session_id": in.GetSessionId(),
+			}).Debug("Received match message %T(%s)", typ, string(in.GetData()))
 
-			logger.Debug("Received match message %T(%s) from %s (%s)", typ, string(in.GetData()), in.GetUsername(), in.GetSessionId())
 			// Unmarshal the message into an interface, then switch on the type.
 			msg := reflect.New(reflect.TypeOf(typ).Elem()).Interface().(evr.Message)
 			if err := json.Unmarshal(in.GetData(), &msg); err != nil {
@@ -744,7 +747,6 @@ func (m *EvrMatch) MatchTerminate(ctx context.Context, logger runtime.Logger, db
 		}
 		// Disconnect the broadcasters session
 		nk.SessionDisconnect(ctx, state.broadcaster.GetSessionId(), runtime.PresenceReasonDisconnect)
-
 	}
 
 	return state

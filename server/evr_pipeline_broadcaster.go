@@ -80,11 +80,11 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 	}
 
 	if err = session.BroadcasterSession(); err != nil {
-		return errFailedRegistration(session, logger, errors.New("Authentication failed. Please use discordID/password auth."), evr.BroadcasterRegistration_InvalidRequest)
+		return errFailedRegistration(session, logger, errors.New("config.json-based auth required"), evr.BroadcasterRegistration_InvalidRequest)
 	}
 
 	// Add the hash of the operator's ID as a region
-	regions = append(regions, evr.ToSymbol(session.userID))
+	regions = append(regions, evr.ToSymbol(session.userID.String()))
 
 	// Add the server id as a region
 	regions = append(regions, evr.ToSymbol(request.ServerID))
@@ -100,7 +100,7 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 	}
 	regions = uniqueRegions
 
-	logger = logger.With(zap.String("userId", session.userID.String()))
+	logger = logger.With(zap.String("uid", session.userID.String()))
 
 	// Set the external address in the request (to use for the registration cache).
 	externalIP := net.ParseIP(session.ClientIP())
@@ -109,7 +109,7 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 		externalIP = p.externalIP
 	}
 
-	logger = logger.With(zap.String("externalIP", externalIP.String()))
+	logger = logger.With(zap.String("ext_ip", externalIP.String()))
 
 	features := ctx.Value(ctxFeaturesKey{}).([]string)
 
@@ -123,7 +123,7 @@ func (p *EvrPipeline) broadcasterRegistrationRequest(ctx context.Context, logger
 	}
 	config.GroupIDs = groupIDs
 
-	logger = logger.With(zap.String("internalIP", request.InternalIP.String()), zap.String("externalIP", externalIP.String()), zap.Uint16("port", request.Port))
+	logger = logger.With(zap.String("int_ip", request.InternalIP.String()), zap.String("ext_ip", externalIP.String()), zap.Uint16("port", request.Port))
 	// Validate connectivity to the broadcaster.
 	// Wait 2 seconds, then check
 
