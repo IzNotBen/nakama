@@ -10,7 +10,7 @@ import (
 // client -> nakama: request the user profile for their logged-in account.
 type LoggedInUserProfileRequest struct {
 	Session            uuid.UUID
-	EvrId              EvrId
+	EvrID              EvrID
 	ProfileRequestData ProfileRequestData
 }
 
@@ -23,22 +23,22 @@ func (m LoggedInUserProfileRequest) Symbol() Symbol {
 }
 
 func (r LoggedInUserProfileRequest) String() string {
-	return fmt.Sprintf("LoggedInUserProfileRequest(session=%v, user_id=%v, profile_request=%v)", r.Session, r.EvrId, r.ProfileRequestData)
+	return fmt.Sprintf("LoggedInUserProfileRequest(session=%v, user_id=%v, profile_request=%v)", r.Session, r.EvrID, r.ProfileRequestData)
 }
 
-func (m *LoggedInUserProfileRequest) Stream(s *EasyStream) error {
+func (m *LoggedInUserProfileRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
 		func() error { return s.StreamJson(&m.ProfileRequestData, true, NoCompression) },
 	})
 }
 
-func NewLoggedInUserProfileRequest(session uuid.UUID, evrId EvrId, profileRequestData ProfileRequestData) LoggedInUserProfileRequest {
+func NewLoggedInUserProfileRequest(session uuid.UUID, evrID EvrID, profileRequestData ProfileRequestData) LoggedInUserProfileRequest {
 	return LoggedInUserProfileRequest{
 		Session:            session,
-		EvrId:              evrId,
+		EvrID:              evrID,
 		ProfileRequestData: profileRequestData,
 	}
 }
@@ -46,8 +46,8 @@ func (m *LoggedInUserProfileRequest) GetSessionID() uuid.UUID {
 	return m.Session
 }
 
-func (m *LoggedInUserProfileRequest) GetEvrID() EvrId {
-	return m.EvrId
+func (m *LoggedInUserProfileRequest) GetEvrID() EvrID {
+	return m.EvrID
 }
 
 type ProfileRequestData struct {

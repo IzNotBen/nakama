@@ -177,7 +177,7 @@ func Test_sanitizeDisplayName(t *testing.T) {
 func TestDeviceAuth_Token(t *testing.T) {
 	type fields struct {
 		AppID           uint64
-		EvrID           evr.EvrId
+		EvrID           evr.EvrID
 		HMDSerialNumber string
 		ClientAddr      string
 	}
@@ -190,9 +190,9 @@ func TestDeviceAuth_Token(t *testing.T) {
 			"valid",
 			fields{
 				AppID: 4321432143214321,
-				EvrID: evr.EvrId{
+				EvrID: evr.EvrID{
 					PlatformCode: 4,
-					AccountId:    1234123412341234,
+					AccountID:    1234123412341234,
 				},
 				HMDSerialNumber: "WMD123412341234",
 				ClientAddr:      "127.0.0.1",
@@ -203,9 +203,9 @@ func TestDeviceAuth_Token(t *testing.T) {
 			"Shadow PC",
 			fields{
 				AppID: 1369078409873402,
-				EvrID: evr.EvrId{
+				EvrID: evr.EvrID{
 					PlatformCode: 4,
-					AccountId:    3620870844675088,
+					AccountID:    3620870844675088,
 				},
 				HMDSerialNumber: "Oculus Quest HMD",
 				ClientAddr:      "127.0.0.1",
@@ -216,9 +216,9 @@ func TestDeviceAuth_Token(t *testing.T) {
 			"N/A HMD Serial Number",
 			fields{
 				AppID: 1369078409873402,
-				EvrID: evr.EvrId{
+				EvrID: evr.EvrID{
 					PlatformCode: 4,
-					AccountId:    3620870844675088,
+					AccountID:    3620870844675088,
 				},
 				HMDSerialNumber: "N/A",
 				ClientAddr:      "127.0.0.1",
@@ -244,7 +244,7 @@ func TestDeviceAuth_Token(t *testing.T) {
 func TestDeviceAuth_WildcardToken(t *testing.T) {
 	type fields struct {
 		AppID           uint64
-		EvrID           evr.EvrId
+		EvrID           evr.EvrID
 		HMDSerialNumber string
 		ClientAddr      string
 	}
@@ -257,9 +257,9 @@ func TestDeviceAuth_WildcardToken(t *testing.T) {
 			"valid",
 			fields{
 				AppID: 4321432143214321,
-				EvrID: evr.EvrId{
+				EvrID: evr.EvrID{
 					PlatformCode: 4,
-					AccountId:    1234123412341234,
+					AccountID:    1234123412341234,
 				},
 				HMDSerialNumber: "WMD123412341234",
 				ClientAddr:      "127.0.0.1",

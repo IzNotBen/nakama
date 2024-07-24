@@ -8,7 +8,7 @@ import (
 
 // nakama -> client: failure response to LoggedInUserProfileFailure.
 type LoggedInUserProfileFailure struct {
-	EvrId        EvrId
+	EvrID        EvrID
 	StatusCode   uint64 // HTTP status code
 	ErrorMessage string
 }
@@ -22,21 +22,21 @@ func (m LoggedInUserProfileFailure) Symbol() Symbol {
 }
 
 func (m *LoggedInUserProfileFailure) String() string {
-	return fmt.Sprintf("%s(user_id=%v, status=%v, msg=\"%s\")", m.Token(), m.EvrId, http.StatusText(int(m.StatusCode)), m.ErrorMessage)
+	return fmt.Sprintf("%s(user_id=%v, status=%v, msg=\"%s\")", m.Token(), m.EvrID, http.StatusText(int(m.StatusCode)), m.ErrorMessage)
 }
 
-func (m *LoggedInUserProfileFailure) Stream(s *EasyStream) error {
+func (m *LoggedInUserProfileFailure) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.StatusCode) },
 		func() error { return s.StreamNullTerminatedString(&m.ErrorMessage) },
 	})
 }
 
-func NewLoggedInUserProfileFailure(evrId EvrId, statusCode int, message string) *LoggedInUserProfileFailure {
+func NewLoggedInUserProfileFailure(evrID EvrID, statusCode int, message string) *LoggedInUserProfileFailure {
 	return &LoggedInUserProfileFailure{
-		EvrId:        evrId,
+		EvrID:        evrID,
 		StatusCode:   uint64(statusCode),
 		ErrorMessage: message,
 	}

@@ -148,9 +148,9 @@ func (m *LobbyCreateSessionRequest) GetSessionID() uuid.UUID {
 	return m.LoginSessionID
 }
 
-func (m *LobbyCreateSessionRequest) GetEvrID() EvrId {
+func (m *LobbyCreateSessionRequest) GetEvrID() EvrID {
 	if len(m.Entrants) == 0 {
-		return EvrId{}
+		return EvrID{}
 	}
 	return m.Entrants[0].EvrID
 }

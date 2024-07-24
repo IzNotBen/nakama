@@ -9,13 +9,13 @@ import (
 
 type LoginSuccess struct {
 	Session uuid.UUID
-	EvrId   EvrId
+	EvrID   EvrID
 }
 
-func NewLoginSuccess(session uuid.UUID, evrId EvrId) *LoginSuccess {
+func NewLoginSuccess(session uuid.UUID, evrID EvrID) *LoginSuccess {
 	return &LoginSuccess{
 		Session: session,
-		EvrId:   evrId,
+		EvrID:   evrID,
 	}
 }
 
@@ -29,14 +29,14 @@ func (m *LoginSuccess) Symbol() Symbol {
 
 func (m LoginSuccess) String() string {
 	return fmt.Sprintf("%s(session=%v, user_id=%s)",
-		m.Token(), m.Session, m.EvrId.String())
+		m.Token(), m.Session, m.EvrID.String())
 }
 
 func (m *LoginSuccess) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
 	})
 }
 
@@ -44,6 +44,6 @@ func (m *LoginSuccess) GetSessionID() uuid.UUID {
 	return m.Session
 }
 
-func (m *LoginSuccess) GetEvrID() EvrId {
-	return m.EvrId
+func (m *LoginSuccess) GetEvrID() EvrID {
+	return m.EvrID
 }

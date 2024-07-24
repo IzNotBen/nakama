@@ -5,7 +5,7 @@ import (
 )
 
 type ReconcileIAPResult struct {
-	EvrId   EvrId
+	EvrID   EvrID
 	IAPData IAPData
 }
 
@@ -28,9 +28,9 @@ type IAPEchoPoints struct {
 
 // ReconcileIAPResult represents a response related to in-app purchases.
 
-func NewReconcileIAPResult(userID EvrId) *ReconcileIAPResult {
+func NewReconcileIAPResult(userID EvrID) *ReconcileIAPResult {
 	return &ReconcileIAPResult{
-		EvrId: userID,
+		EvrID: userID,
 		IAPData: IAPData{
 			Balance: IAPBalance{
 				Currency: IAPCurrency{
@@ -53,12 +53,12 @@ func (r *ReconcileIAPResult) Symbol() Symbol {
 }
 
 func (r *ReconcileIAPResult) String() string {
-	return fmt.Sprintf("%s(user_id=%v, iap_data=%v)", r.Token(), r.EvrId, r.IAPData)
+	return fmt.Sprintf("%s(user_id=%v, iap_data=%v)", r.Token(), r.EvrID, r.IAPData)
 }
 
-func (r *ReconcileIAPResult) Stream(s *EasyStream) error {
+func (r *ReconcileIAPResult) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamStruct(&r.EvrId) },
+		func() error { return s.StreamStruct(&r.EvrID) },
 		func() error { return s.StreamJson(&r.IAPData, true, NoCompression) },
 	})
 }

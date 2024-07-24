@@ -414,7 +414,7 @@ func TestSelectTeamForPlayer_With_Alighment(t *testing.T) {
 
 		// New Player
 		presence := &EvrMatchPresence{
-			EvrID:         *lo.Must(evr.ParseEvrId(tt.newPlayer)),
+			EvrID:         lo.Must(evr.EvrIDFromString(tt.newPlayer)),
 			RoleAlignment: tt.preferredTeam,
 		}
 
@@ -591,7 +591,7 @@ func TestEvrMatch_MatchJoinAttempt(t *testing.T) {
 			LoginSessionID: uuid.Must(uuid.NewV4()),
 			EntrantID:      uuid.Must(uuid.NewV4()),
 			UserID:         uuid.Must(uuid.NewV4()),
-			EvrID:          evr.EvrId{PlatformCode: 4, AccountId: uint64(i)},
+			EvrID:          evr.EvrID{PlatformCode: 4, AccountID: uint64(i)},
 			DiscordID:      "10000" + s,
 			ClientIP:       "127.0.0." + s,
 			ClientPort:     "100" + s,

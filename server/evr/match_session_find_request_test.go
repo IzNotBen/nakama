@@ -48,9 +48,9 @@ func TestLobbyFindSessionRequest_UnmarshalJSON(t *testing.T) {
 				},
 				Entrants: []Entrant{
 					{
-						EvrID: EvrId{
+						EvrID: EvrID{
 							PlatformCode: 4,
-							AccountId:    3963667097037078,
+							AccountID:    3963667097037078,
 						},
 						Role: int8(TeamUnassigned),
 					},
@@ -90,9 +90,9 @@ func TestLobbyFindSessionRequest_UnmarshalJSON(t *testing.T) {
 				},
 				Entrants: []Entrant{
 					{
-						EvrID: EvrId{
+						EvrID: EvrID{
 							PlatformCode: 4,
-							AccountId:    3963667097037078,
+							AccountID:    3963667097037078,
 						},
 						Role: int8(TeamUnassigned),
 					},
@@ -139,9 +139,9 @@ func TestLobbyFindSessionRequest_UnmarshalJSON(t *testing.T) {
 				},
 				Entrants: []Entrant{
 					{
-						EvrID: EvrId{
+						EvrID: EvrID{
 							PlatformCode: 7,
-							AccountId:    8582873777389537089,
+							AccountID:    8582873777389537089,
 						},
 						Role: 2,
 					},

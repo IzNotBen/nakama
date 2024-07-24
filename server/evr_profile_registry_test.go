@@ -66,7 +66,11 @@ func TestSetCosmeticDefaults(t *testing.T) {
 				return
 			}
 			if tt.args.s.UnlockedCosmetics.Arena.Banner0025 != true {
+<<<<<<< HEAD
 				t.Errorf("cosmetic should be unlocked: %v", tt.args.s.UnlockedCosmetics.Arena)
+=======
+				t.Errorf("cosmetic should be unlocked: %v", tt.args.UnlockedCosmetics.Arena)
+>>>>>>> 5729c5ab (fixup! Port EvrID changes from develop)
 				return
 			}
 		})
@@ -91,10 +95,10 @@ func TestGetSessionProfile(t *testing.T) {
 	}
 
 	// Create a test EVR ID
-	evrID, _ := evr.ParseEvrId("OVR_ORG-123412341234")
+	evrID, _ := evr.EvrIDFromString("OVR_ORG-123412341234")
 
 	// Create a test context with the EVR ID
-	ctx := context.WithValue(context.Background(), ctxEvrIDKey{}, *evrID)
+	ctx := context.WithValue(context.Background(), ctxEvrIDKey{}, evrID)
 
 	// Create a test ProfileRegistry
 	profileRegistry, err := createTestProfileRegistry(t, loggerForTest(t))
@@ -107,7 +111,7 @@ func TestGetSessionProfile(t *testing.T) {
 
 	// Call the GetSessionProfile method
 
-	p, err := profileRegistry.GetSessionProfile(ctx, session, loginProfile, *evrID)
+	p, err := profileRegistry.GetSessionProfile(ctx, session, loginProfile, evrID)
 	if err != nil {
 		t.Fatalf("GetSessionProfile returned an error: %v", err)
 	}
@@ -119,8 +123,8 @@ func TestGetSessionProfile(t *testing.T) {
 	if p.Server.LobbyVersion != 123456 {
 		t.Errorf("p.Server.LobbyVersion = %d, want %d", p.Server.LobbyVersion, 123456)
 	}
-	if p.Server.EvrID != *evrID {
-		t.Errorf("p.Server.EchoUserIdToken = %s, want %s", p.Server.EvrID.Token(), evrID.Token())
+	if p.Server.EvrID != evrID {
+		t.Errorf("p.Server.EchoUserIdToken = %s, want %s", p.Server.EvrID.String(), evrID.String())
 	}
 
 	if p.Server.CreateTime != time.Date(2023, 10, 31, 0, 0, 0, 0, time.UTC).Unix() {

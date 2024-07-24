@@ -40,7 +40,7 @@ type LobbyJoinSessionRequest struct {
 	Flags            uint64
 	CrossPlayEnabled bool
 	SessionSettings  SessionSettings
-	OtherEvrID       EvrId
+	OtherEvrID       EvrID
 	Entrants         []Entrant
 }
 
@@ -102,7 +102,7 @@ func (m *LobbyJoinSessionRequest) Stream(s *EasyStream) error {
 			if m.Flags&Flags_ModerateUser != 0 {
 				// Parse the lobbyID as the OtherEvrID
 				m.OtherEvrID.PlatformCode = PlatformCode(uint64(m.MatchID[3]))
-				m.OtherEvrID.AccountId = uint64(binary.LittleEndian.Uint64(m.MatchID[8:]))
+				m.OtherEvrID.AccountID = uint64(binary.LittleEndian.Uint64(m.MatchID[8:]))
 				m.MatchID = uuid.Nil
 			}
 			return nil

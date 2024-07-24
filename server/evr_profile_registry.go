@@ -43,10 +43,10 @@ type GameProfileData struct {
 type AccountProfile struct {
 	account  *api.Account
 	metadata *AccountUserMetadata
-	evrID    evr.EvrId
+	evrID    evr.EvrID
 }
 
-func GetEVRAccount(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, userID uuid.UUID, evrID *evr.EvrId) (*AccountProfile, error) {
+func GetEVRAccount(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, userID uuid.UUID, evrID *evr.EvrID) (*AccountProfile, error) {
 	account, err := nk.AccountGetId(ctx, userID.String())
 	if err != nil || account == nil {
 		return nil, fmt.Errorf("failed to get account: %w", err)
@@ -68,7 +68,7 @@ func GetEVRAccount(ctx context.Context, logger runtime.Logger, nk runtime.Nakama
 				latest = record
 			}
 		}
-		if latest.EvrID == evr.EvrIdNil {
+		if latest.EvrID == evr.EvrIDNil {
 			return nil, fmt.Errorf("no evr id found")
 		}
 		evrID = &latest.EvrID
@@ -77,7 +77,7 @@ func GetEVRAccount(ctx context.Context, logger runtime.Logger, nk runtime.Nakama
 	return NewAccountProfile(ctx, account, *evrID), nil
 
 }
-func NewAccountProfile(ctx context.Context, account *api.Account, evrID evr.EvrId) *AccountProfile {
+func NewAccountProfile(ctx context.Context, account *api.Account, evrID evr.EvrID) *AccountProfile {
 	metadata := &AccountUserMetadata{}
 	if err := json.Unmarshal([]byte(account.User.GetMetadata()), metadata); err != nil {
 		metadata = &AccountUserMetadata{}
@@ -104,7 +104,7 @@ func (p *AccountProfile) GetDisplayName() string {
 	return p.account.User.GetDisplayName()
 }
 
-func (p *AccountProfile) GetEvrID() evr.EvrId {
+func (p *AccountProfile) GetEvrID() evr.EvrID {
 	return p.evrID
 }
 
@@ -165,7 +165,7 @@ func (p *GameProfileData) GetLogin() evr.LoginProfile {
 	return p.Login
 }
 
-func (p *GameProfileData) SetEvrID(evrID evr.EvrId) {
+func (p *GameProfileData) SetEvrID(evrID evr.EvrID) {
 	p.Server.EvrID = evrID
 	p.Client.EvrID = evrID
 }
@@ -304,7 +304,7 @@ func generateDefaultLoadoutMap() map[string]string {
 }
 
 // Load the user's profile from memory (or storage if not found)
-func (r *ProfileRegistry) Load(userID uuid.UUID, evrID evr.EvrId) (profile GameProfileData, created bool) {
+func (r *ProfileRegistry) Load(userID uuid.UUID, evrID evr.EvrID) (profile GameProfileData, created bool) {
 	var found bool
 	var err error
 	ctx, cancel := context.WithTimeout(r.ctx, 2*time.Second)
@@ -333,7 +333,7 @@ func (r *ProfileRegistry) Load(userID uuid.UUID, evrID evr.EvrId) (profile GameP
 		}
 	}
 	r.store(userID, profile)
-	if evrID != evr.EvrIdNil {
+	if evrID != evr.EvrIDNil {
 		profile.SetEvrID(evrID)
 	}
 
@@ -794,7 +794,7 @@ func (r *ProfileRegistry) ValidateArenaUnlockByName(i interface{}, itemName stri
 	return false, fmt.Errorf("unknown unlock field name: %s", fieldName)
 }
 
-func (r *ProfileRegistry) GetSessionProfile(ctx context.Context, session *sessionWS, loginProfile evr.LoginProfile, evrID evr.EvrId) (GameProfileData, error) {
+func (r *ProfileRegistry) GetSessionProfile(ctx context.Context, session *sessionWS, loginProfile evr.LoginProfile, evrID evr.EvrID) (GameProfileData, error) {
 	logger := session.logger.With(zap.String("evr_id", evrID.String()))
 
 	p, ok := r.Load(session.userID, evrID)

@@ -31,9 +31,9 @@ func TestParseDeviceId(t *testing.T) {
 			},
 			&DeviceAuth{
 				AppID: 1343218412343402,
-				EvrID: evr.EvrId{
+				EvrID: evr.EvrID{
 					PlatformCode: 4,
-					AccountId:    3961234097123078,
+					AccountID:    3961234097123078,
 				},
 				HMDSerialNumber: "N/A",
 				ClientIP:        "127.0.0.1",
@@ -47,9 +47,9 @@ func TestParseDeviceId(t *testing.T) {
 			},
 			&DeviceAuth{
 				AppID: 0,
-				EvrID: evr.EvrId{
+				EvrID: evr.EvrID{
 					PlatformCode: 3,
-					AccountId:    463990143344164620,
+					AccountID:    463990143344164620,
 				},
 				HMDSerialNumber: "",
 				ClientIP:        "104.8.177.198",
@@ -79,9 +79,9 @@ func TestParseDeviceId(t *testing.T) {
 			},
 			&DeviceAuth{
 				AppID: 1343218412343402,
-				EvrID: evr.EvrId{
+				EvrID: evr.EvrID{
 					PlatformCode: 4,
-					AccountId:    3961234097123078,
+					AccountID:    3961234097123078,
 				},
 				HMDSerialNumber: "!@#!$##::@1203:\n!!!",
 			},

@@ -80,7 +80,7 @@ func (s *LocalProfileCache) Stop() {
 	s.ctxCancelFn()
 }
 
-func (s *LocalProfileCache) IsValidProfile(matchID MatchID, evrID evr.EvrId) bool {
+func (s *LocalProfileCache) IsValidProfile(matchID MatchID, evrID evr.EvrID) bool {
 	s.RLock()
 	defer s.RUnlock()
 	stream := PresenceStream{
@@ -98,7 +98,7 @@ func (s *LocalProfileCache) IsValidProfile(matchID MatchID, evrID evr.EvrId) boo
 	return profile != ""
 }
 
-func (s *LocalProfileCache) Add(matchID MatchID, evrID evr.EvrId, profile evr.ServerProfile) error {
+func (s *LocalProfileCache) Add(matchID MatchID, evrID evr.EvrID, profile evr.ServerProfile) error {
 	data, err := json.Marshal(profile)
 	if err != nil {
 		return err
@@ -115,7 +115,7 @@ func (s *LocalProfileCache) Add(matchID MatchID, evrID evr.EvrId, profile evr.Se
 	return nil
 }
 
-func (s *LocalProfileCache) Remove(matchID MatchID, evrID evr.EvrId) {
+func (s *LocalProfileCache) Remove(matchID MatchID, evrID evr.EvrID) {
 	stream := PresenceStream{
 		Mode:       StreamModeService,
 		Subject:    matchID.UUID(),
@@ -137,7 +137,7 @@ func (s *LocalProfileCache) RemoveAll(matchID MatchID) {
 	s.Unlock()
 }
 
-func (s *LocalProfileCache) GetByMatchIDByEvrID(matchID MatchID, evrID evr.EvrId) (data string, found bool) {
+func (s *LocalProfileCache) GetByMatchIDByEvrID(matchID MatchID, evrID evr.EvrID) (data string, found bool) {
 	stream := PresenceStream{
 		Mode:       StreamModeService,
 		Subject:    matchID.UUID(),
@@ -151,7 +151,7 @@ func (s *LocalProfileCache) GetByMatchIDByEvrID(matchID MatchID, evrID evr.EvrId
 	return p, ok
 }
 
-func (s *LocalProfileCache) GetByEvrID(evrID evr.EvrId) (data string, found bool) {
+func (s *LocalProfileCache) GetByEvrID(evrID evr.EvrID) (data string, found bool) {
 	s.RLock()
 	defer s.RUnlock()
 	for s, p := range s.cache {

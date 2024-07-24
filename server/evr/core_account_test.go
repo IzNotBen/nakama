@@ -24,9 +24,9 @@ func TestDeveloperFeatures_Omitted_When_Empty(t *testing.T) {
 		BeforeDev: "before",
 		DeveloperFeatures: DeveloperFeatures{
 			DisableAfkTimeout: false,
-			EvrIDOverride: EvrId{
+			EvrIDOverride: EvrID{
 				PlatformCode: 0,
-				AccountId:    0,
+				AccountID:    0,
 			},
 		},
 		AfterDev: "after",

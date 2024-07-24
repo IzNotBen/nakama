@@ -9,18 +9,18 @@ import (
 // It contains profile information about the requested user.
 type OtherUserProfileSuccess struct {
 	Message
-	EvrId             EvrId
+	EvrID             EvrID
 	ServerProfileJSON []byte
 }
 
-func NewOtherUserProfileSuccess(evrId EvrId, profile *ServerProfile) *OtherUserProfileSuccess {
+func NewOtherUserProfileSuccess(evrID EvrID, profile *ServerProfile) *OtherUserProfileSuccess {
 	data, err := json.Marshal(profile)
 	if err != nil {
 		panic("failed to marshal profile")
 	}
 
 	return &OtherUserProfileSuccess{
-		EvrId:             evrId,
+		EvrID:             evrID,
 		ServerProfileJSON: data,
 	}
 }
@@ -33,9 +33,9 @@ func (m *OtherUserProfileSuccess) Symbol() Symbol {
 	return SymbolOf(m)
 }
 
-func (m *OtherUserProfileSuccess) Stream(s *EasyStream) error {
+func (m *OtherUserProfileSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
-		func() error { return s.StreamStruct(&m.EvrId) },
+		func() error { return s.StreamStruct(&m.EvrID) },
 		func() error {
 			return s.StreamCompressedBytes(m.ServerProfileJSON, true, ZstdCompression)
 		},
@@ -43,7 +43,7 @@ func (m *OtherUserProfileSuccess) Stream(s *EasyStream) error {
 }
 
 func (m *OtherUserProfileSuccess) String() string {
-	return fmt.Sprintf("%s(user_id=%s)", m.Token(), m.EvrId.Token())
+	return fmt.Sprintf("%s(user_id=%s)", m.Token(), m.EvrID.String())
 }
 
 func (m *OtherUserProfileSuccess) GetProfile() ServerProfile {

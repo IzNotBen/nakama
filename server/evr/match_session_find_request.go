@@ -138,7 +138,7 @@ func (m *LobbyFindSessionRequest) GetMode() Symbol { return m.Mode }
 
 func (m LobbyFindSessionRequest) GetSessionID() uuid.UUID { return m.LoginSessionID }
 
-func (m LobbyFindSessionRequest) GetEvrID() (evrID EvrId) {
+func (m LobbyFindSessionRequest) GetEvrID() (evrID EvrID) {
 	if len(m.Entrants) > 0 {
 		return m.Entrants[0].EvrID
 	}

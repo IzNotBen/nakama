@@ -2,7 +2,6 @@ package evr
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -113,18 +112,12 @@ func (s Symbol) Token() SymbolToken {
 	return t
 }
 
-func (s Symbol) MarshalJSON() ([]byte, error) {
-	v := s.Token().String()
-	return json.Marshal(v)
+func MarshalText(s Symbol) ([]byte, error) {
+	return []byte(s.Token()), nil
 }
 
-func (s *Symbol) UnmarshalJSON(data []byte) error {
-	var v string
-	if err := json.Unmarshal(data, &v); err != nil {
-		return err
-	}
-	*s = ToSymbol(v)
-	return nil
+func UnmarshalText(data []byte) (Symbol, error) {
+	return ToSymbol(string(data)), nil
 }
 
 func (s Symbol) String() string {
@@ -192,7 +185,7 @@ func ToSymbol(v any) Symbol {
 
 // Message is a Evr message that can be sent over the network.
 type Message interface {
-	Stream(s *EasyStream) error
+	Stream(s *Stream) error
 }
 
 // Marshal returns the wire-format encoding of multiple messages.
@@ -201,7 +194,7 @@ func Marshal(msgs ...Message) ([]byte, error) {
 	b := make([]byte, 0)
 	for _, m := range msgs {
 		// Encode the message.
-		s := NewEasyStream(EncodeMode, []byte{})
+		s := NewStream(EncodeMode, []byte{})
 		if err := m.Stream(s); err != nil {
 			errs = errors.Join(fmt.Errorf("could not stream message:%s", err), errs)
 			continue

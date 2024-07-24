@@ -104,7 +104,7 @@ type EvrMatchPresence struct {
 	LoginSessionID uuid.UUID `json:"login_session_id,omitempty"`
 	EntrantID      uuid.UUID `json:"entrant_id,omitempty"`
 	UserID         uuid.UUID `json:"user_id,omitempty"`
-	EvrID          evr.EvrId `json:"evr_id,omitempty"`
+	EvrID          evr.EvrID `json:"evr_id,omitempty"`
 	DiscordID      string    `json:"discord_id,omitempty"`
 	ClientIP       string    `json:"client_ip,omitempty"`
 	ClientPort     string    `json:"client_port,omitempty"`
@@ -149,8 +149,8 @@ func (p EvrMatchPresence) GetStatus() string {
 func (p *EvrMatchPresence) GetReason() runtime.PresenceReason {
 	return runtime.PresenceReasonUnknown
 }
-func (p EvrMatchPresence) GetEvrId() string {
-	return p.EvrID.Token()
+func (p EvrMatchPresence) GetEvrID() string {
+	return p.EvrID.String()
 }
 
 func (p EvrMatchPresence) GetPlayerSession() string {
@@ -209,7 +209,7 @@ type PlayerInfo struct {
 	UserID      string    `json:"user_id,omitempty"`
 	Username    string    `json:"username,omitempty"`
 	DisplayName string    `json:"display_name,omitempty"`
-	EvrID       evr.EvrId `json:"evr_id,omitempty"`
+	EvrID       evr.EvrID `json:"evr_id,omitempty"`
 	Team        TeamIndex `json:"team"`
 	ClientIP    string    `json:"client_ip,omitempty"`
 	DiscordID   string    `json:"discord_id,omitempty"`
@@ -507,7 +507,7 @@ func (m *EvrMatch) MatchJoinAttempt(ctx context.Context, logger runtime.Logger, 
 	state.presences[mp.GetSessionId()] = mp
 
 	logger.WithFields(map[string]interface{}{
-		"evr_id":      mp.EvrID.Token(),
+		"evr_id":      mp.EvrID.String(),
 		"team":        mp.RoleAlignment,
 		"sid":         mp.GetSessionId(),
 		"uid":         mp.GetUserId(),
@@ -927,7 +927,7 @@ func (m *EvrMatch) StartSession(ctx context.Context, logger runtime.Logger, nk r
 	}
 	state.Started = true
 	state.StartTime = time.Now()
-	entrants := make([]evr.EvrId, 0)
+	entrants := make([]evr.EvrID, 0)
 	message := evr.NewBroadcasterStartSession(state.ID.UUID(), channel, state.MaxSize, uint8(state.LobbyType), state.Broadcaster.AppId, state.Mode, state.Level, state.RequiredFeatures, entrants)
 	logger.Info("Starting session. %v", message)
 	messages := []evr.Message{

@@ -25,7 +25,7 @@ const (
 	DisplayNameOverrideUrlParam           = "displayname"
 	UserPasswordUrlParam                  = "password"
 	DiscordIdUrlParam                     = "discordid"
-	EvrIdOverrideUrlParam                 = "evrid"
+	EvrIDOverrideUrlParam                 = "evrid"
 	BroadcasterEncryptionDisabledUrlParam = "disable_encryption"
 	BroadcasterHMACDisabledUrlParam       = "disable_hmac"
 	FeaturesURLParam                      = "features"
@@ -40,16 +40,16 @@ const (
 	RemoteLogStorageCollection   = "RemoteLogs"
 )
 
-// errWithEvrIdFn prefixes an error with the EchoVR Id.
-func errWithEvrIdFn(evrId evr.EvrId, format string, a ...interface{}) error {
-	return fmt.Errorf("%s: %w", evrId.Token(), fmt.Errorf(format, a...))
+// errWithEvrIDFn prefixes an error with the EchoVR Id.
+func errWithEvrIDFn(evrID evr.EvrID, format string, a ...interface{}) error {
+	return fmt.Errorf("%s: %w", evrID.String(), fmt.Errorf(format, a...))
 }
 
 // msgFailedLoginFn sends a LoginFailure message to the client.
 // The error message is word-wrapped to 60 characters, 4 lines long.
-func msgFailedLoginFn(session *sessionWS, evrId evr.EvrId, err error) error {
+func msgFailedLoginFn(session *sessionWS, evrID evr.EvrID, err error) error {
 	// Format the error message
-	s := fmt.Sprintf("%s: %s", evrId.Token(), err.Error())
+	s := fmt.Sprintf("%s: %s", evrID.String(), err.Error())
 
 	// Replace ": " with ":\n" for better readability
 	s = strings.Replace(s, ": ", ":\n", 2)
@@ -59,11 +59,11 @@ func msgFailedLoginFn(session *sessionWS, evrId evr.EvrId, err error) error {
 
 	// Send the messages
 	if err := session.SendEvr(
-		evr.NewLoginFailure(evrId, errMessage),
+		evr.NewLoginFailure(evrID, errMessage),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
 		// If there's an error, prefix it with the EchoVR Id
-		return errWithEvrIdFn(evrId, "send LoginFailure failed: %w", err)
+		return errWithEvrIDFn(evrID, "send LoginFailure failed: %w", err)
 	}
 
 	return nil
@@ -83,8 +83,8 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	// TODO At some point EVR-ID's should be assigned, not accepted.
 
 	// Validate the user identifier
-	if !request.EvrId.Valid() {
-		return msgFailedLoginFn(session, request.EvrId, status.Error(codes.InvalidArgument, "invalid EVR ID"))
+	if !request.EvrID.Valid() {
+		return msgFailedLoginFn(session, request.EvrID, status.Error(codes.InvalidArgument, "invalid EVR ID"))
 	}
 
 	payload := request.LoginData
@@ -96,7 +96,7 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	}
 
 	// Construct the device auth token from the login payload
-	deviceId := NewDeviceAuth(payload.AppId, request.EvrId, hmdsn, session.clientIP)
+	deviceId := NewDeviceAuth(payload.AppId, request.EvrID, hmdsn, session.clientIP)
 
 	// Providing a discord ID and password avoids the need to link the device to the account.
 	// Server Hosts use this method to authenticate.
@@ -104,23 +104,23 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	discordId, _ := ctx.Value(ctxDiscordIdKey{}).(string)
 
 	// Authenticate the connection
-	gameSettings, err := p.processLogin(ctx, logger, session, request.EvrId, deviceId, discordId, userPassword, payload)
+	gameSettings, err := p.processLogin(ctx, logger, session, request.EvrID, deviceId, discordId, userPassword, payload)
 	if err != nil {
 		st := status.Convert(err)
-		return msgFailedLoginFn(session, request.EvrId, errors.New(st.Message()))
+		return msgFailedLoginFn(session, request.EvrID, errors.New(st.Message()))
 	}
 
 	// Let the client know that the login was successful.
 	// Send the login success message and the login settings.
 	return session.SendEvr(
-		evr.NewLoginSuccess(session.id, request.EvrId),
+		evr.NewLoginSuccess(session.id, request.EvrID),
 		evr.NewSTcpConnectionUnrequireEvent(),
 		gameSettings,
 	)
 }
 
 // processLogin handles the authentication of the login connection.
-func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrId evr.EvrId, deviceId *DeviceAuth, discordId string, userPassword string, loginProfile evr.LoginProfile) (settings *evr.GameSettings, err error) {
+func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrID evr.EvrID, deviceId *DeviceAuth, discordId string, userPassword string, loginProfile evr.LoginProfile) (settings *evr.GameSettings, err error) {
 	// Authenticate the account.
 	account, err := p.authenticateAccount(ctx, logger, session, deviceId, discordId, userPassword, loginProfile)
 	if err != nil {
@@ -152,7 +152,7 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	}
 
 	// Check that this EVR-ID is only used by this userID
-	otherLogins, err := p.checkEvrIDOwner(ctx, evrId)
+	otherLogins, err := p.checkEvrIDOwner(ctx, evrID)
 	if err != nil {
 		return settings, fmt.Errorf("failed to check EVR-ID owner: %w", err)
 	}
@@ -160,13 +160,13 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	if len(otherLogins) > 0 {
 		// Check if the user is the owner of the EVR-ID
 		if otherLogins[0].UserID != uuid.FromStringOrNil(userId) {
-			session.logger.Warn("EVR-ID is already in use", zap.String("evrId", evrId.Token()), zap.String("userId", userId))
+			session.logger.Warn("EVR-ID is already in use", zap.String("evrID", evrID.String()), zap.String("userId", userId))
 		}
 	}
 
 	// If user ID is not empty, write out the login payload to storage.
 	if userId != "" {
-		if err := writeAuditObjects(ctx, session, userId, evrId.Token(), loginProfile); err != nil {
+		if err := writeAuditObjects(ctx, session, userId, evrID.String(), loginProfile); err != nil {
 			session.logger.Warn("Failed to write audit objects", zap.Error(err))
 		}
 	}
@@ -210,13 +210,13 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 	verbose := config.Verbose
 
 	// Initialize the full session
-	if err := session.LoginSession(userId, user.GetUsername(), evrId, deviceId, groupID, flags, verbose); err != nil {
+	if err := session.LoginSession(userId, user.GetUsername(), evrID, deviceId, groupID, flags, verbose); err != nil {
 		return settings, fmt.Errorf("failed to login: %w", err)
 	}
 	ctx = session.Context()
 
 	// Load the user's profile
-	profile, err := p.profileRegistry.GetSessionProfile(ctx, session, loginProfile, evrId)
+	profile, err := p.profileRegistry.GetSessionProfile(ctx, session, loginProfile, evrID)
 	if err != nil {
 		session.logger.Error("failed to load game profiles", zap.Error(err))
 		return evr.NewDefaultGameSettings(), fmt.Errorf("failed to load game profiles")
@@ -244,10 +244,10 @@ type EvrIDHistory struct {
 	UserID  uuid.UUID
 }
 
-func (p *EvrPipeline) checkEvrIDOwner(ctx context.Context, evrId evr.EvrId) ([]EvrIDHistory, error) {
+func (p *EvrPipeline) checkEvrIDOwner(ctx context.Context, evrID evr.EvrID) ([]EvrIDHistory, error) {
 
 	// Check the storage index for matching evrIDs
-	objectIds, err := p.storageIndex.List(ctx, uuid.Nil, EvrIDStorageIndex, fmt.Sprintf("+value.server.xplatformid:%s", evrId.String()), 1)
+	objectIds, err := p.storageIndex.List(ctx, uuid.Nil, EvrIDStorageIndex, fmt.Sprintf("+value.server.xplatformid:%s", evrID.String()), 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list evrIDs: %w", err)
 	}
@@ -349,7 +349,7 @@ func (p *EvrPipeline) authenticateAccount(ctx context.Context, logger *zap.Logge
 	return account, errors.New(msg)
 }
 
-func writeAuditObjects(ctx context.Context, session *sessionWS, userId string, evrIdToken string, payload evr.LoginProfile) error {
+func writeAuditObjects(ctx context.Context, session *sessionWS, userId string, evrIDToken string, payload evr.LoginProfile) error {
 	// Write logging/auditing storage objects.
 	loginPayloadJson, err := json.Marshal(payload)
 	if err != nil {
@@ -362,7 +362,7 @@ func writeAuditObjects(ctx context.Context, session *sessionWS, userId string, e
 			OwnerID: userId,
 			Object: &api.WriteStorageObject{
 				Collection:      EvrLoginStorageCollection,
-				Key:             evrIdToken,
+				Key:             evrIDToken,
 				Value:           data,
 				PermissionRead:  perm,
 				PermissionWrite: perm,
@@ -456,16 +456,16 @@ func (p *EvrPipeline) loggedInUserProfileRequest(ctx context.Context, logger *za
 	defer func() { p.metrics.CustomTimer("loggedInUserProfileRequest", nil, time.Since(timer)) }()
 
 	// Ignore the request and use what was authenticated with
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
-		logger.Error("evrId not found in context")
+		logger.Error("evrID not found in context")
 		// Get it from the request
-		evrID = request.EvrId
+		evrID = request.EvrID
 	}
 
 	profile, found := p.profileRegistry.Load(session.userID, evrID)
 	if !found {
-		return session.SendEvr(evr.NewLoggedInUserProfileFailure(request.EvrId, 400, "failed to load game profiles"))
+		return session.SendEvr(evr.NewLoggedInUserProfileFailure(request.EvrID, 400, "failed to load game profiles"))
 	}
 
 	return session.SendEvr(evr.NewLoggedInUserProfileSuccess(evrID, profile.Client, profile.Server))
@@ -474,16 +474,16 @@ func (p *EvrPipeline) loggedInUserProfileRequest(ctx context.Context, logger *za
 func (p *EvrPipeline) updateClientProfileRequest(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
 	request := in.(*evr.UpdateClientProfile)
 	// Ignore the EvrID in the request and use what was authenticated with
-	evrId, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
-		return fmt.Errorf("evrId not found in context")
+		return fmt.Errorf("evrID not found in context")
 	}
 	// Set the EVR ID from the context
-	request.ClientProfile.EvrID = evrId
+	request.ClientProfile.EvrID = evrID
 
 	if _, err := p.profileRegistry.UpdateClientProfile(ctx, logger, session, request.ClientProfile); err != nil {
 		code := 400
-		if err := session.SendEvr(evr.NewUpdateProfileFailure(evrId, uint64(code), err.Error())); err != nil {
+		if err := session.SendEvr(evr.NewUpdateProfileFailure(evrID, uint64(code), err.Error())); err != nil {
 			return fmt.Errorf("send UpdateProfileFailure: %w", err)
 		}
 		return fmt.Errorf("UpdateProfile: %w", err)
@@ -491,7 +491,7 @@ func (p *EvrPipeline) updateClientProfileRequest(ctx context.Context, logger *za
 
 	// Send the profile update to the client
 	if err := session.SendEvr(
-		evr.NewSNSUpdateProfileSuccess(&evrId),
+		evr.NewSNSUpdateProfileSuccess(&evrID),
 		evr.NewSTcpConnectionUnrequireEvent(),
 	); err != nil {
 		logger.Warn("Failed to send UpdateProfileSuccess", zap.Error(err))
@@ -503,9 +503,9 @@ func (p *EvrPipeline) updateClientProfileRequest(ctx context.Context, logger *za
 func (p *EvrPipeline) remoteLogSetv3(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
 	request := in.(*evr.RemoteLogSet)
 
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
-		logger.Debug("evrId not found in context")
+		logger.Debug("evrID not found in context")
 
 	}
 
@@ -650,9 +650,9 @@ func (p *EvrPipeline) remoteLogSetv3(ctx context.Context, logger *zap.Logger, se
 
 func (p *EvrPipeline) documentRequest(ctx context.Context, logger *zap.Logger, session *sessionWS, in evr.Message) error {
 	request := in.(*evr.DocumentRequest)
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
-		return fmt.Errorf("evrId not found in context")
+		return fmt.Errorf("evrID not found in context")
 	}
 
 	var document evr.Document
@@ -948,20 +948,20 @@ func (p *EvrPipeline) otherUserProfileRequest(ctx context.Context, logger *zap.L
 	var found bool
 	if !matchID.IsNil() {
 		// This is probably a broadcaster connection. pull any profile for this EvrID from the cache.
-		data, found = p.profileCache.GetByMatchIDByEvrID(matchID, request.EvrId)
+		data, found = p.profileCache.GetByMatchIDByEvrID(matchID, request.EvrID)
 		if !found {
-			return fmt.Errorf("failed to find profile for `%s` in match `%s`", request.EvrId.String(), matchID.String())
+			return fmt.Errorf("failed to find profile for `%s` in match `%s`", request.EvrID.String(), matchID.String())
 		}
 	} else {
-		data, found = p.profileCache.GetByEvrID(request.EvrId)
+		data, found = p.profileCache.GetByEvrID(request.EvrID)
 		if !found {
-			return fmt.Errorf("failed to find profile for `%s`", request.EvrId.String())
+			return fmt.Errorf("failed to find profile for `%s`", request.EvrID.String())
 		}
 	}
 
 	// Construct the response
 	response := &evr.OtherUserProfileSuccess{
-		EvrId:             request.EvrId,
+		EvrID:             request.EvrID,
 		ServerProfileJSON: []byte(data),
 	}
 

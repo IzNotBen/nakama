@@ -12,7 +12,7 @@ var Symbol_SNSLoginRequestv2 Symbol = LoginFailure{}.Symbol()
 // LoginRequest represents a message from client to server requesting for a user sign-in.
 type LoginRequest struct {
 	Session   uuid.UUID    `json:"Session"` // This is the old session id, if it had one.
-	EvrId     EvrId        `json:"UserId"`
+	EvrID     EvrID        `json:"UserId"`
 	LoginData LoginProfile `json:"LoginData"`
 }
 
@@ -21,28 +21,28 @@ func (m *LoginRequest) Symbol() Symbol { return SymbolOf(m) }
 
 func (lr LoginRequest) String() string {
 	return fmt.Sprintf("%s(session=%v, user_id=%s, login_data=%s)",
-		lr.Token(), lr.Session, lr.EvrId.String(), lr.LoginData.String())
+		lr.Token(), lr.Session, lr.EvrID.String(), lr.LoginData.String())
 }
 
 func (m *LoginRequest) Stream(s *EasyStream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamGuid(&m.Session) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.PlatformCode) },
-		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrId.AccountId) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.PlatformCode) },
+		func() error { return s.StreamNumber(binary.LittleEndian, &m.EvrID.AccountID) },
 		func() error { return s.StreamJson(&m.LoginData, true, NoCompression) },
 	})
 }
 
-func NewLoginRequest(session uuid.UUID, userId EvrId, loginData LoginProfile) (*LoginRequest, error) {
+func NewLoginRequest(session uuid.UUID, userId EvrID, loginData LoginProfile) (*LoginRequest, error) {
 	return &LoginRequest{
 		Session:   session,
-		EvrId:     userId,
+		EvrID:     userId,
 		LoginData: loginData,
 	}, nil
 }
 
-func (m *LoginRequest) GetEvrID() EvrId {
-	return m.EvrId
+func (m *LoginRequest) GetEvrID() EvrID {
+	return m.EvrID
 }
 
 type LoginProfile struct {

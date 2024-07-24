@@ -49,7 +49,7 @@ func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logg
 	}
 
 	// Get the EvrID from the context
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
 		return status.Errorf(codes.InvalidArgument, "Failed to get EVR ID")
 	}
@@ -544,7 +544,7 @@ func (p *EvrPipeline) lobbyPlayerSessionsRequest(ctx context.Context, logger *za
 		entrantIDs = append(entrantIDs, uuid.NewV5(message.LobbyID, e.String()))
 	}
 
-	entrant := evr.NewLobbyEntrant(message.EvrId, message.LobbyID, entrantID, entrantIDs, int16(presence.RoleAlignment))
+	entrant := evr.NewLobbyEntrant(message.EvrID, message.LobbyID, entrantID, entrantIDs, int16(presence.RoleAlignment))
 
 	return session.SendEvr(entrant.VersionU(), entrant.Version2(), entrant.Version3())
 }

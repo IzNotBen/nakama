@@ -11,17 +11,17 @@ type GenericMessage struct {
 	Session     uuid.UUID
 	AcctId      uint64
 	MessageType Symbol
-	OtherEvrID  EvrId
+	OtherEvrID  EvrID
 	RoomID      int64
 	PartyData   GenericMessageData
 }
 
-func NewGenericMessage(session uuid.UUID, acctId uint64, messageType Symbol, otherEvrId EvrId, partyData GenericMessageData) *GenericMessage {
+func NewGenericMessage(session uuid.UUID, acctId uint64, messageType Symbol, otherEvrID EvrID, partyData GenericMessageData) *GenericMessage {
 	return &GenericMessage{
 		Session:     session,
 		AcctId:      acctId,
 		MessageType: messageType,
-		OtherEvrID:  otherEvrId,
+		OtherEvrID:  otherEvrID,
 		PartyData:   partyData,
 	}
 }
@@ -56,7 +56,7 @@ func (m *GenericMessage) GetSessionID() uuid.UUID {
 }
 
 func (m GenericMessage) String() string {
-	return fmt.Sprintf("GenericMessage{Session: %s, AcctId: %d, OVRSymbol: %d, OtherEvrId: %s, RoomId: %d, PartyData: %v}", m.Session, m.AcctId, m.MessageType, m.OtherEvrID.Token(), m.RoomID, m.PartyData)
+	return fmt.Sprintf("GenericMessage{Session: %s, AcctId: %d, OVRSymbol: %d, OtherEvrID: %s, RoomId: %d, PartyData: %v}", m.Session, m.AcctId, m.MessageType, m.OtherEvrID.String(), m.RoomID, m.PartyData)
 }
 
 type GenericMessageData struct {

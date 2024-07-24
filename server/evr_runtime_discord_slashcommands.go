@@ -86,8 +86,8 @@ type WhoAmI struct {
 	ClientAddresses []string `json:"addresses,omitempty"`
 }
 
-type EvrIdLogins struct {
-	EvrId         string `json:"evr_id"`
+type EvrIDLogins struct {
+	EvrID         string `json:"evr_id"`
 	LastLoginTime string `json:"login_time"`
 	DisplayName   string `json:"display_name,omitempty"`
 }
@@ -1725,7 +1725,7 @@ func (d *DiscordAppBot) RegisterSlashCommands() error {
 			}
 			membership := memberships[0]
 
-			profile, _ := d.profileRegistry.Load(userID, evr.EvrIdNil)
+			profile, _ := d.profileRegistry.Load(userID, evr.EvrIDNil)
 			profile.SetChannel(evr.GUID(membership.GuildGroup.ID()))
 			if err = d.profileRegistry.Store(userID, profile); err != nil {
 				errFn(err)
@@ -1916,7 +1916,7 @@ func (d *DiscordAppBot) RegisterSlashCommands() error {
 				return
 			}
 
-			profile, _ := d.profileRegistry.Load(targetUserID, evr.EvrIdNil)
+			profile, _ := d.profileRegistry.Load(targetUserID, evr.EvrIDNil)
 			profile.TriggerCommunityValues()
 			if err = d.profileRegistry.Store(targetUserID, profile); err != nil {
 				errFn(err)

@@ -70,10 +70,10 @@ type SessionVars struct {
 	HMDSerialNumber string `json:"hmd_serial_number"`
 }
 
-func NewSessionVars(appID uint64, evrID evr.EvrId, clientIP, headsetType, hmdSerialNumber string) *SessionVars {
+func NewSessionVars(appID uint64, evrID evr.EvrID, clientIP, headsetType, hmdSerialNumber string) *SessionVars {
 	return &SessionVars{
 		AppID:           strconv.FormatUint(appID, 10),
-		EvrID:           evrID.Token(),
+		EvrID:           evrID.String(),
 		ClientIP:        clientIP,
 		HeadsetType:     headsetType,
 		HMDSerialNumber: hmdSerialNumber,
@@ -96,19 +96,19 @@ func SessionVarsFromMap(m map[string]string) *SessionVars {
 
 func (s *SessionVars) DeviceID() *DeviceAuth {
 	appID, _ := strconv.ParseUint(s.AppID, 10, 64)
-	evrID, _ := evr.ParseEvrId(s.EvrID)
-	return NewDeviceAuth(appID, *evrID, s.HMDSerialNumber, s.ClientIP)
+	evrID, _ := evr.EvrIDFromString(s.EvrID)
+	return NewDeviceAuth(appID, evrID, s.HMDSerialNumber, s.ClientIP)
 }
 
 // The data used to generate the Device ID authentication string.
 type DeviceAuth struct {
 	AppID           uint64    // The application ID for the game
-	EvrID           evr.EvrId // The xplatform ID string
+	EvrID           evr.EvrID // The xplatform ID string
 	HMDSerialNumber string    // The HMD serial number
 	ClientIP        string    // The client address
 }
 
-func NewDeviceAuth(appID uint64, evrID evr.EvrId, hmdSerialNumber, clientAddr string) *DeviceAuth {
+func NewDeviceAuth(appID uint64, evrID evr.EvrID, hmdSerialNumber, clientAddr string) *DeviceAuth {
 	return &DeviceAuth{
 		AppID:           appID,
 		EvrID:           evrID,
@@ -122,7 +122,7 @@ func NewDeviceAuth(appID uint64, evrID evr.EvrId, hmdSerialNumber, clientAddr st
 func (d DeviceAuth) Token() string {
 	components := []string{
 		strconv.FormatUint(d.AppID, 10),
-		d.EvrID.Token(),
+		d.EvrID.String(),
 		d.HMDSerialNumber,
 		d.ClientIP,
 	}
@@ -155,7 +155,7 @@ func ParseDeviceAuthToken(token string) (*DeviceAuth, error) {
 		return nil, fmt.Errorf("invalid app ID in device ID token: %s", token)
 	}
 
-	evrID, err := evr.ParseEvrId(parts[1])
+	evrID, err := evr.EvrIDFromString(parts[1])
 	if err != nil {
 		return nil, fmt.Errorf("invalid xplatform ID in device ID token: %s", token)
 	}
@@ -168,7 +168,7 @@ func ParseDeviceAuthToken(token string) (*DeviceAuth, error) {
 
 	return &DeviceAuth{
 		AppID:           appID,
-		EvrID:           *evrID,
+		EvrID:           evrID,
 		HMDSerialNumber: hmdsn,
 		ClientIP:        clientAddr,
 	}, nil
@@ -195,7 +195,7 @@ func (p *EvrPipeline) linkTicket(session *sessionWS, logger *zap.Logger, deviceI
 	// Check if a link ticket already exists for the provided xplatformId and hmdSerialNumber
 	// Escape dots
 
-	objectIds, err := session.storageIndex.List(ctx, uuid.Nil, LinkTicketIndex, fmt.Sprintf("+value.evrid_token:%s", deviceID.EvrID.Token()), 1)
+	objectIds, err := session.storageIndex.List(ctx, uuid.Nil, LinkTicketIndex, fmt.Sprintf("+value.evrid_token:%s", deviceID.EvrID.String()), 1)
 	if err != nil {
 		return nil, fmt.Errorf("error listing link tickets: `%q`  %v", deviceID.Token(), err)
 	}
@@ -526,32 +526,32 @@ func ReadAccessTokenFromStorage(ctx context.Context, logger runtime.Logger, nk r
 }
 
 type EVRLoginRecord struct {
-	EvrID        evr.EvrId
+	EvrID        evr.EvrID
 	LoginProfile *evr.LoginProfile
 	CreateTime   time.Time
 	UpdateTime   time.Time
 }
 
-func GetEVRRecords(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, userId string) (map[evr.EvrId]EVRLoginRecord, error) {
+func GetEVRRecords(ctx context.Context, logger runtime.Logger, nk runtime.NakamaModule, userId string) (map[evr.EvrID]EVRLoginRecord, error) {
 	listRecords, _, err := nk.StorageList(ctx, SystemUserID, userId, EvrLoginStorageCollection, 100, "")
 	if err != nil {
 		logger.WithField("err", err).Error("Storage list error.")
 		return nil, fmt.Errorf("storage list error: %v", err)
 	}
 
-	records := make(map[evr.EvrId]EVRLoginRecord, len(listRecords))
+	records := make(map[evr.EvrID]EVRLoginRecord, len(listRecords))
 
 	for _, record := range listRecords {
 		var loginProfile evr.LoginProfile
 		if err := json.Unmarshal([]byte(record.Value), &loginProfile); err != nil {
 			return nil, fmt.Errorf("error unmarshalling login profile for %s: %v", record.GetKey(), err)
 		}
-		evrID, err := evr.ParseEvrId(record.Key)
+		evrID, err := evr.EvrIDFromString(record.Key)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing evrID: %v", err)
 		}
-		records[*evrID] = EVRLoginRecord{
-			EvrID:        *evrID,
+		records[evrID] = EVRLoginRecord{
+			EvrID:        evrID,
 			LoginProfile: &loginProfile,
 			CreateTime:   record.CreateTime.AsTime(),
 			UpdateTime:   record.UpdateTime.AsTime(),

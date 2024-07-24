@@ -261,7 +261,7 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 	}
 }
 
-func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId, deviceId *DeviceAuth, groupID uuid.UUID, flags int, verbose bool) error {
+func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrID, deviceId *DeviceAuth, groupID uuid.UUID, flags int, verbose bool) error {
 	// Each player has a single login connection, which will act as the core session.
 	// When this connection is terminated, all other connections should be terminated.
 
@@ -288,7 +288,7 @@ func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId
 	s.ctx = ctx
 	s.userID = uuid.FromStringOrNil(userID)
 	s.SetUsername(username)
-	s.logger = s.logger.With(zap.String("evrid", evrID.Token()), zap.String("username", username), zap.String("uid", userID))
+	s.logger = s.logger.With(zap.String("evrid", evrID.String()), zap.String("username", username), zap.String("uid", userID))
 	s.Unlock()
 
 	// Register initial status tracking and presence(s) for this session.
@@ -299,12 +299,12 @@ func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrId
 		// EVR packet data stream for the login session by user ID, and service ID, with EVR ID
 		{
 			Stream: PresenceStream{Mode: StreamModeService, Subject: s.userID, Subcontext: StreamContextLogin},
-			Meta:   PresenceMeta{Format: s.format, Username: evrID.Token(), Hidden: true},
+			Meta:   PresenceMeta{Format: s.format, Username: evrID.String(), Hidden: true},
 		},
 		// EVR packet data stream for the login session by session ID and service ID, with EVR ID
 		{
 			Stream: PresenceStream{Mode: StreamModeService, Subject: s.id, Subcontext: StreamContextLogin},
-			Meta:   PresenceMeta{Format: s.format, Username: evrID.Token(), Hidden: true},
+			Meta:   PresenceMeta{Format: s.format, Username: evrID.String(), Hidden: true},
 		},
 		// Notification presence.
 		{
@@ -358,12 +358,12 @@ func (s *sessionWS) BroadcasterSession(userID string, username string) error {
 }
 
 // ValidateSession validates the session information provided by the client.
-func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrId) error {
+func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrID) error {
 	if loginSessionID == uuid.Nil {
 		return fmt.Errorf("login session ID is nil")
 	}
 
-	if evrID.Equals(evr.EvrIdNil) {
+	if evrID.Equals(evr.EvrIDNil) {
 		return fmt.Errorf("evr ID is nil")
 	}
 
@@ -389,7 +389,7 @@ func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrId) e
 		}()
 
 		// Verify that the login sessions context values match the request.
-		loginEvrID, ok := loginCtx.Value(ctxEvrIDKey{}).(evr.EvrId)
+		loginEvrID, ok := loginCtx.Value(ctxEvrIDKey{}).(evr.EvrID)
 		if !ok {
 			return fmt.Errorf("login session does not have an EVR ID")
 		}
@@ -441,7 +441,7 @@ func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrId) e
 		s.ctx = ctx
 		s.userID = userID
 		s.SetUsername(username)
-		s.logger = s.logger.With(zap.String("loginsid", loginSessionID.String()), zap.String("uid", userID.String()), zap.String("evrid", evrID.Token()), zap.String("username", username))
+		s.logger = s.logger.With(zap.String("loginsid", loginSessionID.String()), zap.String("uid", userID.String()), zap.String("evrid", evrID.String()), zap.String("username", username))
 		s.Unlock()
 
 	}

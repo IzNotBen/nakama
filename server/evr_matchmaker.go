@@ -249,7 +249,7 @@ func (p *EvrPipeline) MatchMake(session *sessionWS, msession *MatchmakingSession
 		return "", err
 	}
 	// Get the EVR ID from the context
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
 		return "", status.Errorf(codes.Internal, "EVR ID not found in context")
 	}
@@ -544,7 +544,7 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 	}
 
 	// Set the profile's display name.
-	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrId)
+	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
 		return fmt.Errorf("failed to get evrID from session context")
 	}

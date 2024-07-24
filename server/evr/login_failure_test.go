@@ -17,7 +17,7 @@ func TestLoginFailure(t *testing.T) {
 	var jsonMessage *LoginFailure
 
 	binaryMessage := &LoginFailure{
-		UserId:       EvrId{},
+		UserId:       EvrID{},
 		StatusCode:   0,
 		ErrorMessage: "",
 	}
@@ -37,9 +37,9 @@ func TestLoginFailure(t *testing.T) {
 	if err != nil {
 		return
 	}
-	structMessage := NewLoginFailure(EvrId{
+	structMessage := NewLoginFailure(EvrID{
 		PlatformCode: jsonMessage.UserId.PlatformCode,
-		AccountId:    jsonMessage.UserId.AccountId,
+		AccountID:    jsonMessage.UserId.AccountID,
 	}, jsonMessage.ErrorMessage)
 	structMessage.StatusCode = jsonMessage.StatusCode
 

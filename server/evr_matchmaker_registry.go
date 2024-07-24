@@ -645,14 +645,14 @@ func (mr *MatchmakingRegistry) buildMatch(entrants []*MatchmakerEntry, config Ma
 	for i, players := range teams {
 		for _, p := range players {
 			// Update the label with the teams
-			evrID, err := evr.ParseEvrId(p.StringProperties["evr_id"])
+			evrID, err := evr.EvrIDFromString(p.StringProperties["evr_id"])
 			if err != nil {
 				logger.Error("Failed to parse evr id", zap.Error(err))
 				continue
 			}
 			pi := PlayerInfo{
 				Team:  TeamIndex(i),
-				EvrID: *evrID,
+				EvrID: evrID,
 			}
 			ml.Players = append(ml.Players, pi)
 		}
@@ -1315,7 +1315,7 @@ func (c *MatchmakingRegistry) GetLatencies(userId uuid.UUID, endpoints []evr.End
 	return result
 }
 
-func (ms *MatchmakingSession) BuildQuery(latencies []LatencyMetric, evrID evr.EvrId) (query string, stringProps map[string]string, numericProps map[string]float64, err error) {
+func (ms *MatchmakingSession) BuildQuery(latencies []LatencyMetric, evrID evr.EvrID) (query string, stringProps map[string]string, numericProps map[string]float64, err error) {
 	// Create the properties maps
 	stringProps = make(map[string]string)
 	numericProps = make(map[string]float64, len(latencies))

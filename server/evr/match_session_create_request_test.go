@@ -72,7 +72,7 @@ func TestLobbyCreateSessionRequest_Unmarshal(t *testing.T) {
 		},
 		Entrants: []Entrant{
 			{
-				EvrID: *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
+				EvrID: *lo.Must(EvrIDFromString("OVR_ORG-3963667097037078")),
 				Role:  2,
 			},
 		},
@@ -143,7 +143,7 @@ func TestLobbyCreateSessionRequest_GameType(t *testing.T) {
 		},
 		Entrants: []Entrant{
 			{
-				EvrID: *lo.Must(ParseEvrId("OVR_ORG-3963667097037078")),
+				EvrID: *lo.Must(EvrIDFromString("OVR_ORG-3963667097037078")),
 				Role:  2,
 			},
 		},

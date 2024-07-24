@@ -13,7 +13,7 @@ type LobbySessionRequest interface {
 }
 
 type Entrant struct {
-	EvrID EvrId
+	EvrID EvrID
 	Role  int8 // -1 for any team
 }
 

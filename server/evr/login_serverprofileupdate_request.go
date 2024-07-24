@@ -6,7 +6,7 @@ import (
 )
 
 type UserServerProfileUpdateRequest struct {
-	EvrID   EvrId
+	EvrID   EvrID
 	Payload UpdatePayload
 }
 

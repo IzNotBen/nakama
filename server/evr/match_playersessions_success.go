@@ -13,19 +13,19 @@ type LobbyEntrant struct {
 	EntrantIDs []uuid.UUID // Unk1, The player session token obtained for the requested player user identifier.
 
 	Unk0      byte      // V2, V3
-	EvrId     EvrId     // V2, V3
+	EvrID     EvrID     // V2, V3
 	EntrantID uuid.UUID // V2, V3
 	TeamIndex int16     // V3
 	Unk1      uint16    // V3
 	Unk2      uint32    // V3
 }
 
-func NewLobbyEntrant(evrId EvrId, matchingSession uuid.UUID, playerSession uuid.UUID, playerSessions []uuid.UUID, teamIndex int16) *LobbyEntrant {
+func NewLobbyEntrant(evrID EvrID, matchingSession uuid.UUID, playerSession uuid.UUID, playerSessions []uuid.UUID, teamIndex int16) *LobbyEntrant {
 	return &LobbyEntrant{
 		LobbyID:    matchingSession,
 		EntrantIDs: playerSessions,
 		Unk0:       0xFF,
-		EvrId:      evrId,
+		EvrID:      evrID,
 		EntrantID:  playerSession,
 		TeamIndex:  teamIndex,
 		Unk1:       0,
@@ -75,10 +75,10 @@ func (m *LobbyEntrantsV0) String() string {
 
 type LobbyEntrantsV3 LobbyEntrant
 
-func (m *LobbyEntrantsV3) Stream(s *EasyStream) error {
+func (m *LobbyEntrantsV3) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
-		func() error { return s.StreamStruct(&m.EvrId) },
+		func() error { return s.StreamStruct(&m.EvrID) },
 		func() error { return s.StreamGuid(&m.EntrantID) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.TeamIndex) },
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk1) },
@@ -89,21 +89,21 @@ func (m *LobbyEntrantsV3) Stream(s *EasyStream) error {
 
 func (m *LobbyEntrantsV3) String() string {
 	return fmt.Sprintf("%T(unk0=%d, evr_id=%v, entrant_id=%s, team_index=%d, unk1=%d, unk2=%d)",
-		m, m.Unk0, m.EvrId, m.EntrantID, m.TeamIndex, m.Unk1, m.Unk2)
+		m, m.Unk0, m.EvrID, m.EntrantID, m.TeamIndex, m.Unk1, m.Unk2)
 }
 
 type LobbyEntrantsV2 LobbyEntrant
 
 // Stream streams the message data in/out based on the streaming mode set.
-func (m *LobbyEntrantsV2) Stream(s *EasyStream) error {
+func (m *LobbyEntrantsV2) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.StreamNumber(binary.LittleEndian, &m.Unk0) },
-		func() error { return s.StreamStruct(&m.EvrId) },
+		func() error { return s.StreamStruct(&m.EvrID) },
 		func() error { return s.StreamGuid(&m.EntrantID) },
 	})
 }
 
 // String returns a string representation of the LobbyPlayerSessionsSuccessv2 message.
 func (m LobbyEntrantsV2) String() string {
-	return fmt.Sprintf("%T(unk0=%d, evr_id=%v, entrant_id=%s)", m, m.Unk0, m.EvrId, m.EntrantID)
+	return fmt.Sprintf("%T(unk0=%d, evr_id=%v, entrant_id=%s)", m, m.Unk0, m.EvrID, m.EntrantID)
 }

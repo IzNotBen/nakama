@@ -5,7 +5,7 @@ import "github.com/gofrs/uuid/v5"
 // A message that can be used to validate the session.
 type IdentifyingMessage interface {
 	GetSessionID() uuid.UUID
-	GetEvrID() EvrId
+	GetEvrID() EvrID
 }
 
 type MatchSessionMessage interface {

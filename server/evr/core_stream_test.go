@@ -9,15 +9,14 @@ import (
 	"testing"
 )
 
-func TestEasyStream_StreamNumber_Write(t *testing.T) {
+func TestStream_StreamNumber_Write(t *testing.T) {
 
 	// Create a buffer for testing
 	buf := new(bytes.Buffer)
 
-	// Create an EasyStream instance with DecodeMode
-	stream := &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	// Create an Stream instance with DecodeMode
+	stream := &Stream{
+		w: buf,
 	}
 
 	// Test uint64
@@ -55,13 +54,12 @@ func TestEasyStream_StreamNumber_Write(t *testing.T) {
 	}
 }
 
-func TestEasyStream_StreamNumber_Read(t *testing.T) {
+func TestStream_StreamNumber_Read(t *testing.T) {
 
 	b := []byte{0x2e, 0xfd, 0x69, 0xb6, 0xff, 0xff, 0xff, 0xff}
-	// Create an EasyStream instance with DecodeMode
-	stream := &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(b),
+	// Create an Stream instance with DecodeMode
+	stream := &Stream{
+		r: bytes.NewReader(b),
 	}
 
 	// Create a variable to hold the expected value
@@ -75,16 +73,15 @@ func TestEasyStream_StreamNumber_Read(t *testing.T) {
 	}
 }
 
-func TestEasyStream_StreamNumber_WriteThenRead(t *testing.T) {
+func TestStream_StreamNumber_WriteThenRead(t *testing.T) {
 
 	// Create a buffer for testing
 	// Create a buffer for testing
 	buf := new(bytes.Buffer)
 
-	// Create an EasyStream instance with DecodeMode
-	stream := &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	// Create an Stream instance with DecodeMode
+	stream := &Stream{
+		w: buf,
 	}
 
 	// Test uint64
@@ -113,10 +110,9 @@ func TestEasyStream_StreamNumber_WriteThenRead(t *testing.T) {
 		t.Errorf("int64(%d) = %s, want %s", uintv, hex.Dump(got), hex.Dump(want))
 	}
 
-	// Create an EasyStream instance with DecodeMode
-	stream = &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(want),
+	// Create an Stream instance with DecodeMode
+	stream = &Stream{
+		r: bytes.NewReader(want),
 	}
 
 	// Create a variable to hold the expected value
@@ -155,7 +151,7 @@ func TestReadBytes(t *testing.T) {
 		t.Errorf("ReadBytes() = %s, want %s", got, want)
 	}
 }
-func TestEasyStream_StreamCompressedBytes(t *testing.T) {
+func TestStream_StreamCompressedBytes(t *testing.T) {
 	// Test data
 	data := []byte("Hello, World!")
 
@@ -163,9 +159,8 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 	buf := new(bytes.Buffer)
 
 	// NoCompression: Not null terminated
-	stream := &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	stream := &Stream{
+		w: buf,
 	}
 	if err := stream.StreamCompressedBytes(data, false, NoCompression); err != nil {
 		t.Fatalf("failed to stream compressed bytes: %v", err)
@@ -176,10 +171,9 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Errorf("StreamCompressedBytes() = %s, want %s", got, want)
 	}
-	// Create an EasyStream
-	stream = &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(encoded),
+	// Create an Stream
+	stream = &Stream{
+		r: bytes.NewReader(encoded),
 	}
 	want = data
 	got = []byte{}
@@ -192,9 +186,8 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 
 	buf.Reset()
 	// NoCompression: Null terminated
-	stream = &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	stream = &Stream{
+		w: buf,
 	}
 	if err := stream.StreamCompressedBytes(data, true, NoCompression); err != nil {
 		t.Fatalf("failed to stream compressed bytes: %v", err)
@@ -207,9 +200,8 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 	}
 
 	// NoCompression: Null terminated
-	stream = &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(encoded),
+	stream = &Stream{
+		r: bytes.NewReader(encoded),
 	}
 	want = data
 	got = []byte{}
@@ -222,9 +214,8 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 
 	// Test ZlibCompression
 	buf.Reset()
-	stream = &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	stream = &Stream{
+		w: buf,
 	}
 
 	if err := stream.StreamCompressedBytes(data, false, ZlibCompression); err != nil {
@@ -234,9 +225,8 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 
 	buf.Reset()
 
-	stream = &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(encoded),
+	stream = &Stream{
+		r: bytes.NewReader(encoded),
 	}
 
 	got = []byte{}
@@ -249,9 +239,8 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 
 	// Test ZlibCompression
 	buf.Reset()
-	stream = &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	stream = &Stream{
+		w: buf,
 	}
 
 	if err := stream.StreamCompressedBytes(data, true, ZlibCompression); err != nil {
@@ -261,9 +250,8 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 
 	buf.Reset()
 
-	stream = &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(encoded),
+	stream = &Stream{
+		r: bytes.NewReader(encoded),
 	}
 
 	got = []byte{}
@@ -274,45 +262,43 @@ func TestEasyStream_StreamCompressedBytes(t *testing.T) {
 		t.Errorf("StreamCompressedBytes() = %s, want %s", got, want)
 	}
 }
-func TestEasyStream_StreamIpAddress(t *testing.T) {
+func TestStream_StreamIP(t *testing.T) {
 	// Test data
 	ip := net.ParseIP("192.168.0.1")
 
 	// Create a buffer for testing
 	buf := new(bytes.Buffer)
 
-	// Create an EasyStream instance with EncodeMode
-	stream := &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	// Create an Stream instance with EncodeMode
+	stream := &Stream{
+		w: buf,
 	}
 
 	// Stream the IP address
-	if err := stream.StreamIpAddress(&ip); err != nil {
+	if err := stream.StreamIP(&ip); err != nil {
 		t.Fatalf("failed to stream IP address: %v", err)
 	}
 
 	// Create a new IP variable to hold the decoded value
 	decodedIP := net.IP{}
 
-	// Create a new EasyStream instance with DecodeMode
-	stream = &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(buf.Bytes()),
+	// Create a new Stream instance with DecodeMode
+	stream = &Stream{
+		r: bytes.NewReader(buf.Bytes()),
 	}
 
 	// Stream the IP address back
-	if err := stream.StreamIpAddress(&decodedIP); err != nil {
+	if err := stream.StreamIP(&decodedIP); err != nil {
 		t.Fatalf("failed to stream IP address: %v", err)
 	}
 
 	// Compare the original IP with the decoded IP
 	if !ip.Equal(decodedIP) {
-		t.Errorf("StreamIpAddress() = %s, want %s", decodedIP, ip)
+		t.Errorf("StreamIP() = %s, want %s", decodedIP, ip)
 	}
 }
 
-func TestEasyStream_StreamString(t *testing.T) {
+func TestStream_StreamString(t *testing.T) {
 	// Test data
 	value := "Hello, World!"
 	length := len(value) + 3
@@ -320,10 +306,9 @@ func TestEasyStream_StreamString(t *testing.T) {
 	// Create a buffer for testing
 	buf := new(bytes.Buffer)
 
-	// Create an EasyStream instance with EncodeMode
-	stream := &EasyStream{
-		Mode: EncodeMode,
-		w:    buf,
+	// Create an Stream instance with EncodeMode
+	stream := &Stream{
+		w: buf,
 	}
 
 	// Stream the string
@@ -334,10 +319,9 @@ func TestEasyStream_StreamString(t *testing.T) {
 	// Create a new string variable to hold the decoded value
 	decodedValue := ""
 
-	// Create a new EasyStream instance with DecodeMode
-	stream = &EasyStream{
-		Mode: DecodeMode,
-		r:    bytes.NewReader(buf.Bytes()),
+	// Create a new Stream instance with DecodeMode
+	stream = &Stream{
+		r: bytes.NewReader(buf.Bytes()),
 	}
 
 	// Stream the string back
