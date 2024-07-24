@@ -24,7 +24,7 @@ const (
 	HMDSerialOverrideUrlParam             = "hmdserial"
 	DisplayNameOverrideUrlParam           = "displayname"
 	UserPasswordUrlParam                  = "password"
-	DiscordIdUrlParam                     = "discordid"
+	DiscordIdURLParam                     = "discordid"
 	EvrIDOverrideUrlParam                 = "evrid"
 	BroadcasterEncryptionDisabledUrlParam = "disable_encryption"
 	BroadcasterHMACDisabledUrlParam       = "disable_hmac"
@@ -80,8 +80,6 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	timer := time.Now()
 	defer func() { p.metrics.CustomTimer("login", nil, time.Since(timer)) }()
 
-	// TODO At some point EVR-ID's should be assigned, not accepted.
-
 	// Validate the user identifier
 	if !request.EvrID.Valid() {
 		return msgFailedLoginFn(session, request.EvrID, status.Error(codes.InvalidArgument, "invalid EVR ID"))
@@ -98,13 +96,8 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 	// Construct the device auth token from the login payload
 	deviceId := NewDeviceAuth(payload.AppId, request.EvrID, hmdsn, session.clientIP)
 
-	// Providing a discord ID and password avoids the need to link the device to the account.
-	// Server Hosts use this method to authenticate.
-	userPassword, _ := ctx.Value(ctxPasswordKey{}).(string)
-	discordId, _ := ctx.Value(ctxDiscordIdKey{}).(string)
-
 	// Authenticate the connection
-	gameSettings, err := p.processLogin(ctx, logger, session, request.EvrID, deviceId, discordId, userPassword, payload)
+	gameSettings, err := p.processLogin(ctx, logger, session, request.EvrID, deviceId, payload)
 	if err != nil {
 		st := status.Convert(err)
 		return msgFailedLoginFn(session, request.EvrID, errors.New(st.Message()))
@@ -120,12 +113,19 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 }
 
 // processLogin handles the authentication of the login connection.
-func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrID evr.EvrID, deviceId *DeviceAuth, discordId string, userPassword string, loginProfile evr.LoginProfile) (settings *evr.GameSettings, err error) {
-	// Authenticate the account.
-	account, err := p.authenticateAccount(ctx, logger, session, deviceId, discordId, userPassword, loginProfile)
-	if err != nil {
-		return settings, err
+func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrID evr.EvrID, deviceId *DeviceAuth, loginProfile evr.LoginProfile) (settings *evr.GameSettings, err error) {
+
+	var account *api.Account
+	if session.userID == uuid.Nil {
+		if account, err = p.authenticateAccount(ctx, logger, session, deviceId, loginProfile); err != nil {
+			return settings, err
+		}
+	} else {
+		if account, err = GetAccount(ctx, session.logger, session.pipeline.db, session.statusRegistry, session.userID); err != nil {
+			return settings, status.Error(codes.Internal, fmt.Sprintf("failed to get account: %s", err))
+		}
 	}
+
 	if account == nil {
 		return settings, fmt.Errorf("account not found")
 	}
@@ -266,36 +266,15 @@ func (p *EvrPipeline) checkEvrIDOwner(ctx context.Context, evrID evr.EvrID) ([]E
 
 	return history, nil
 }
-func (p *EvrPipeline) authenticateAccount(ctx context.Context, logger *zap.Logger, session *sessionWS, deviceId *DeviceAuth, discordId string, userPassword string, payload evr.LoginProfile) (*api.Account, error) {
+func (p *EvrPipeline) authenticateAccount(ctx context.Context, logger *zap.Logger, session *sessionWS, deviceId *DeviceAuth, payload evr.LoginProfile) (*api.Account, error) {
 	var err error
 	var userId string
 	var account *api.Account
 
-	// Discord Authentication
-	if discordId != "" {
+	// Check for a password in the context
+	userPassword := ctx.Value(ctxAuthPasswordKey{}).(string)
 
-		if userPassword == "" {
-			return nil, status.Error(codes.InvalidArgument, "password required")
-		}
-
-		uid, err := p.discordRegistry.GetUserIdByDiscordId(ctx, discordId, false)
-		if err == nil {
-			userId = uid.String()
-			// Authenticate the password.
-			userId, _, _, err = AuthenticateEmail(ctx, session.logger, session.pipeline.db, userId+"@"+p.placeholderEmail, userPassword, "", false)
-			if err == nil {
-				// Complete. Return account.
-				return GetAccount(ctx, session.logger, session.pipeline.db, session.statusRegistry, uuid.FromStringOrNil(userId))
-			} else if status.Code(err) != codes.NotFound {
-				// Possibly banned or other error.
-				return account, err
-			}
-		}
-		// TODO FIXME return early if the discordId is non-existant.
-		// Account requires discord linking, clear the discordId.
-		discordId = ""
-	}
-
+	// Authenticate with the device ID.
 	userId, _, _, err = AuthenticateDevice(ctx, session.logger, session.pipeline.db, deviceId.Token(), "", false)
 	if err != nil && status.Code(err) == codes.NotFound {
 		// Try to authenticate the device with a wildcard address.
@@ -343,8 +322,7 @@ func (p *EvrPipeline) authenticateAccount(ctx context.Context, logger *zap.Logge
 	if err != nil {
 		return account, status.Error(codes.Internal, fmt.Errorf("error creating link ticket: %w", err).Error())
 	}
-	msg := fmt.Sprintf("\nEnter this code:\n  \n>>> %s <<<\nusing '/link-headset %s' in the Echo VR Lounge Discord.", linkTicket.Code, linkTicket.Code)
-	return account, errors.New(msg)
+	return account, fmt.Errorf("\nEnter this code:\n  \n>>> %s <<<\nusing '/link-headset %s' in the Echo VR Lounge Discord.", linkTicket.Code, linkTicket.Code)
 }
 
 func writeAuditObjects(ctx context.Context, session *sessionWS, userId string, evrIDToken string, payload evr.LoginProfile) error {
@@ -411,34 +389,25 @@ func (p *EvrPipeline) channelInfoRequest(ctx context.Context, logger *zap.Logger
 func (p *EvrPipeline) buildChannelInfo(ctx context.Context, logger *zap.Logger) (*evr.ChannelInfoResource, error) {
 	resource := evr.NewChannelInfoResource()
 
-	//  Get the current guild Group ID from the Context
-	groupID, ok := ctx.Value(ctxGroupIDKey{}).(uuid.UUID)
+	memberships, ok := ctx.Value(ctxMembershipsKey{}).([]GuildGroupMembership)
 	if !ok {
-		return nil, fmt.Errorf("groupID not found in context")
+		return nil, fmt.Errorf("guild memberships not found in context")
 	}
-	md, err := p.discordRegistry.GetGuildGroupMetadata(ctx, groupID.String())
+
+	group, md, err := GetGuildGroupMetadata(ctx, p.runtimeModule, memberships[0].ID().String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get guild group metadata: %w", err)
 	}
-	groups, err := GetGroups(ctx, logger, p.db, []string{groupID.String()})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get groups: %w", err)
-	}
-	if len(groups) == 0 {
-		return nil, fmt.Errorf("group not found")
-	}
-
-	g := groups[0]
 
 	resource.Groups = make([]evr.ChannelGroup, 4)
 	for i := range resource.Groups {
 		resource.Groups[i] = evr.ChannelGroup{
-			ChannelUuid:  strings.ToUpper(groupID.String()),
-			Name:         g.Name,
-			Description:  g.Description,
-			Rules:        g.Name + "\n" + md.RulesText,
+			ChannelUuid:  strings.ToUpper(group.GetId()),
+			Name:         group.GetName(),
+			Description:  group.GetDescription(),
+			Rules:        group.GetName() + "\n" + md.RulesText,
 			RulesVersion: 1,
-			Link:         fmt.Sprintf("https://discord.gg/channel/%s", g.GetName()),
+			Link:         fmt.Sprintf("https://discord.gg/channel/%s", group.GetName()),
 			Priority:     uint64(i),
 			RAD:          true,
 		}

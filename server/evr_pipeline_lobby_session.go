@@ -40,11 +40,6 @@ func (p *EVRPipeline) lobbySession(logger *zap.Logger, session EVRSession, in ev
 	ctx := session.Context()
 
 	// TODO Send ping
-	// groupID
-	groupID := req.GetGroupID()
-	if groupID == uuid.Nil {
-		req.SetGroupID(ctx.Value(ctxGroupIDKey{}).(uuid.UUID))
-	}
 
 	// TODO need to join to party
 	partyID := uuid.Nil

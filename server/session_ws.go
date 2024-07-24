@@ -106,22 +106,20 @@ type (
 	}
 
 	// Keys used for storing/retrieving user information in the context of a request after authentication.
-	ctxNodeKey              struct{} // The node name
-	ctxEvrIDKey             struct{} // The EchoVR ID
-	ctxGroupIDKey           struct{} // The guild group ID the user has selected
-	ctxLoginSessionKey      struct{} // The Session ID of the login connection
-	ctxSessionIDKey         struct{} // The Session ID
-	ctxHMDSerialOverrideKey struct{} // The HMD Serial Override
-	ctxDiscordIdKey         struct{} // The Discord ID from the urlparam (used to authenticate broadcaster connections)
-	ctxPasswordKey          struct{} // The Password from the urlparam(used to authenticate login/broadcaster connections)
-	ctxUrlParamsKey         struct{} // The URL parameters from the request
+	ctxNodeKey         struct{} // The node name
+	ctxEvrIDKey        struct{} // The EchoVR ID
+	ctxLoginSessionKey struct{} // The Session ID of the login connection
+	ctxSessionIDKey    struct{} // The Session ID
+
+	ctxURLParamsKey         struct{} // The URL parameters from the request
+	ctxAuthPasswordKey      struct{} // The password from the request
 	ctxIPinfoTokenKey       struct{} // The IPinfo token from the config
 	ctxFlagsKey             struct{} // The group flags from the urlparam
 	ctxFeaturesKey          struct{} // The features from the urlparam
 	ctxRequiredFeaturesKey  struct{} // The features from the urlparam
 	ctxVerboseKey           struct{} // The verbosity flag from matchmaking config
 	ctxMembershipsKey       struct{} // The guild group memberships
-
+	ctxHMDSerialOverrideKey struct{} // The HMD Serial Override from the urlparam
 	//ctxMatchmakingQueryKey         struct{} // The Matchmaking query from the urlparam
 	//ctxMatchmakingGuildPriorityKey struct{} // The Matchmaking guild priority from the urlparam
 )
@@ -150,21 +148,30 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 		ctx = context.WithValue(ctx, ctxHMDSerialOverrideKey{}, sn)
 	}
 
-	// Add the Discord ID to the context if it's present in the request URL
-	if v := request.URL.Query().Get(DiscordIdUrlParam); v != "" {
-		// Discord IDs are 18/19 characters long
-		if len(v) > 19 {
-			v = v[:19]
-		}
-		ctx = context.WithValue(ctx, ctxDiscordIdKey{}, v)
-	}
+	// If the user provided discordID and password on the URL, try to authenticate the user
 
-	// Add the Password to the context if it's present in the request URL
-	if v := request.URL.Query().Get(UserPasswordUrlParam); v != "" {
-		if len(v) > 32 {
-			v = v[:32]
+	// Add the Discord ID to the context if it's present in the request URL
+	if discordID := request.URL.Query().Get(DiscordIdURLParam); discordID != "" {
+		// Discord IDs are 18/19 characters long
+		if len(discordID) > 19 {
+			discordID = discordID[:19]
 		}
-		ctx = context.WithValue(ctx, ctxPasswordKey{}, v)
+		if uname, err := GetUsernameByDiscordID(ctx, pipeline.db, discordID); err != nil {
+			sessionLogger.Warn("Failed to get user ID by Discord ID", zap.String("discord_id", discordID), zap.Error(err))
+		} else if passwd := request.URL.Query().Get(UserPasswordUrlParam); passwd != "" {
+			if len(passwd) > 32 {
+				passwd = passwd[:32]
+			}
+			if userIDStr, err := AuthenticateUsername(ctx, logger, pipeline.db, uname, passwd); err != nil {
+				sessionLogger.Warn("Failed to authenticate user by Discord ID", zap.Error(err))
+				// Only include the password in the context if the user was unsuccessful in authenticating.
+				// Once the user has been authenticated with a deviceID, their password will be set.
+				ctx = context.WithValue(ctx, ctxAuthPasswordKey{}, passwd)
+			} else {
+				username = uname
+				userID = uuid.FromStringOrNil(userIDStr)
+			}
+		}
 	}
 
 	// Add the features list to the urlparam, sanitizing it
@@ -189,7 +196,7 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 	if v := request.URL.Query().Get(RequiredFeaturesURLParam); v != "" {
 		s := strings.Split(v, ",")
 		for _, f := range s {
-			// Sanatize the feature name to all lowercase and only A-Z, a-z, 0-9, and _
+			// Sanitize the feature name to all lowercase and only A-Z, a-z, 0-9, and _
 			f = strings.ToLower(f)
 			if !featurePattern.MatchString(f) {
 				continue
@@ -208,7 +215,7 @@ func NewSessionWS(logger *zap.Logger, config Config, format SessionFormat, sessi
 	for k, v := range request.URL.Query() {
 		p[k] = v
 	}
-	ctx = context.WithValue(ctx, ctxUrlParamsKey{}, p)
+	ctx = context.WithValue(ctx, ctxURLParamsKey{}, p)
 
 	wsMessageType := websocket.TextMessage
 	if format == SessionFormatProtobuf || format == SessionFormatEvr {
@@ -323,35 +330,32 @@ func (s *sessionWS) LoginSession(userID string, username string, evrID evr.EvrID
 	return nil
 }
 
-func (s *sessionWS) BroadcasterSession(userID string, username string) error {
+func (s *sessionWS) BroadcasterSession() error {
 	// Broadcaster's are "partial" sessions, and aren't directly associated with the user.
 	// There's no information that directly links this connection to the login connection.
 
 	// This is the first time the session has been validated.
+	s.SetUsername("broadcaster:" + s.Username())
+	ctx := context.WithValue(s.Context(), ctxUserIDKey{}, s.userID) // apiServer compatibility
+	ctx = context.WithValue(ctx, ctxUsernameKey{}, s.Username())    // apiServer compatibility
+	ctx = context.WithValue(ctx, ctxVarsKey{}, s.vars)              // apiServer compatibility
+	ctx = context.WithValue(ctx, ctxExpiryKey{}, s.expiry)          // apiServer compatibility
 
-	ctx := context.WithValue(s.Context(), ctxUserIDKey{}, uuid.FromStringOrNil(userID)) // apiServer compatibility
-	ctx = context.WithValue(ctx, ctxUsernameKey{}, username)                            // apiServer compatibility
-	ctx = context.WithValue(ctx, ctxVarsKey{}, s.vars)                                  // apiServer compatibility
-	ctx = context.WithValue(ctx, ctxExpiryKey{}, s.expiry)                              // apiServer compatibility
-
-	s.SetUsername(username)
 	s.Lock()
 	s.ctx = ctx
-	s.userID = uuid.FromStringOrNil(userID)
-	s.SetUsername(username)
-	s.logger = s.logger.With(zap.String("username", username), zap.String("uid", userID))
+	s.logger = s.logger.With(zap.String("username", s.Username()), zap.String("uid", s.userID.String()))
 	s.Unlock()
 
 	s.tracker.TrackMulti(ctx, s.id, []*TrackerOp{
 		// EVR packet data stream for the login session by Session ID and broadcaster ID
 		{
 			Stream: PresenceStream{Mode: StreamModeService, Subject: s.userID, Subcontext: StreamContextGameServer},
-			Meta:   PresenceMeta{Format: s.format, Username: s.username.String(), Hidden: true},
+			Meta:   PresenceMeta{Format: s.format, Username: s.Username(), Hidden: true},
 		},
 		// EVR packet data stream by session ID and broadcaster ID
 		{
 			Stream: PresenceStream{Mode: StreamModeService, Subject: s.id, Subcontext: StreamContextGameServer},
-			Meta:   PresenceMeta{Format: s.format, Username: s.username.String(), Hidden: true},
+			Meta:   PresenceMeta{Format: s.format, Username: s.Username(), Hidden: true},
 		},
 	}, s.userID)
 
@@ -414,11 +418,6 @@ func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrID) e
 			return fmt.Errorf("login session does not have system group flags")
 		}
 
-		groupID, ok := loginCtx.Value(ctxGroupIDKey{}).(uuid.UUID)
-		if !ok {
-			return fmt.Errorf("login session does not have a group ID")
-		}
-
 		verbose, ok := loginCtx.Value(ctxVerboseKey{}).(bool)
 		if !ok {
 			return fmt.Errorf("login session does not have verbose flag")
@@ -428,14 +427,19 @@ func (s *sessionWS) ValidateSession(loginSessionID uuid.UUID, evrID evr.EvrID) e
 			return fmt.Errorf("login session not authenticated")
 		}
 
+		memberships, ok := loginCtx.Value(ctxMembershipsKey{}).([]GuildGroupMembership)
+		if !ok {
+			return fmt.Errorf("login session does not have guild group memberships")
+		}
+
 		// Create a derived context for this session.
 		ctx := context.WithValue(s.Context(), ctxLoginSessionKey{}, loginSession)
 		ctx = context.WithValue(ctx, ctxEvrIDKey{}, evrID)
 		ctx = context.WithValue(ctx, ctxUserIDKey{}, userID)     // apiServer compatibility
 		ctx = context.WithValue(ctx, ctxUsernameKey{}, username) // apiServer compatibility
 		ctx = context.WithValue(ctx, ctxFlagsKey{}, flags)
-		ctx = context.WithValue(ctx, ctxGroupIDKey{}, groupID)
 		ctx = context.WithValue(ctx, ctxVerboseKey{}, verbose)
+		ctx = context.WithValue(ctx, ctxMembershipsKey{}, memberships)
 
 		// Set the session information
 		s.Lock()

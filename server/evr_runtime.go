@@ -437,6 +437,7 @@ func EvrApiHttpHandler(ctx context.Context, logger runtime.Logger, db *sql.DB, n
 
 	return string(response), nil
 }
+
 func GetUserIDByDiscordID(ctx context.Context, db *sql.DB, customID string) (userID string, err error) {
 	// Look for an existing account.
 	query := "SELECT id, disable_time FROM users WHERE custom_id = $1"
@@ -461,6 +462,25 @@ func GetUserIDByDiscordID(ctx context.Context, db *sql.DB, customID string) (use
 	}
 
 	return dbUserID, nil
+}
+
+func GetUsernameByDiscordID(ctx context.Context, db *sql.DB, customID string) (username string, err error) {
+	// Look for an existing account.
+	query := "SELECT username FROM users WHERE custom_id = $1"
+	var dbUsername string
+	var found = true
+	if err = db.QueryRowContext(ctx, query, customID).Scan(&dbUsername); err != nil {
+		if err == sql.ErrNoRows {
+			found = false
+		} else {
+			return "", status.Error(codes.Internal, "error finding username by discord ID")
+		}
+	}
+	if !found {
+		return "", status.Error(codes.NotFound, "discord ID not found")
+	}
+
+	return dbUsername, nil
 }
 
 func GetGroupIDByGuildID(ctx context.Context, db *sql.DB, guildID string) (groupID string, err error) {

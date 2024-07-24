@@ -435,6 +435,10 @@ func NewGuildGroupMembership(group *api.Group, userID uuid.UUID, state api.UserG
 	}
 }
 
+func (m *GuildGroupMembership) ID() uuid.UUID {
+	return m.GuildGroup.ID()
+}
+
 // GetGuildGroupMemberships looks up the guild groups by the user ID
 func (r *LocalDiscordRegistry) GetGuildGroupMemberships(ctx context.Context, userID uuid.UUID, groupIDs []uuid.UUID) ([]GuildGroupMembership, error) {
 	// Check if userId is provided
@@ -1086,19 +1090,21 @@ func (r *LocalDiscordRegistry) isSystemGroupMember(ctx context.Context, userID u
 
 func (d *LocalDiscordRegistry) ProcessRequest(ctx context.Context, session *sessionWS, in evr.Message) error {
 
-	groupID, ok := ctx.Value(ctxGroupIDKey{}).(uuid.UUID)
-	if !ok {
-		return nil
-	}
-
-	// Check the cache for the "<groupID>:#echovrce-debug" value that will provide the channelID
-	channelID, found := d.Get(groupID.String() + ":#echovrce-debug")
-	if !found {
-		return nil
-	}
-
 	switch in := in.(type) {
-	case *evr.LobbyCreateSessionRequest, *evr.LobbyFindSessionRequest, *evr.LobbyJoinSessionRequest:
+	case SessionRequest:
+		groupID := in.GetGroupID()
+		if groupID == uuid.Nil {
+			memberships, ok := ctx.Value(ctxMembershipsKey{}).([]GuildGroupMembership)
+			if !ok || len(memberships) == 0 {
+				return fmt.Errorf("error getting guild group memberships")
+			}
+			groupID = memberships[0].ID()
+		}
+		// Check the cache for the "<groupID>:#echovrce-debug" value that will provide the channelID
+		channelID, found := d.Get(groupID.String() + ":#echovrce-debug")
+		if !found {
+			return nil
+		}
 		// Message the channel with the request info
 		request := fmt.Sprintf("%T: %v", in, in)
 		if _, err := d.bot.ChannelMessageSend(channelID, request); err != nil {

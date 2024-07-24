@@ -1323,11 +1323,6 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 
 func (p *EvrPipeline) GetGuildPriorityList(ctx context.Context, userID uuid.UUID) (all []uuid.UUID, selected []uuid.UUID, err error) {
 
-	currentGroupID, ok := ctx.Value(ctxGroupIDKey{}).(uuid.UUID)
-	if !ok {
-		return nil, nil, status.Errorf(codes.InvalidArgument, "Failed to get group ID from context")
-	}
-
 	// Get the guild priority from the context
 	memberships, err := p.discordRegistry.GetGuildGroupMemberships(ctx, userID, nil)
 	if err != nil {
@@ -1345,7 +1340,7 @@ func (p *EvrPipeline) GetGuildPriorityList(ctx context.Context, userID uuid.UUID
 	}
 
 	guildPriority := make([]uuid.UUID, 0)
-	params, ok := ctx.Value(ctxUrlParamsKey{}).(map[string][]string)
+	params, ok := ctx.Value(ctxURLParamsKey{}).(map[string][]string)
 	if ok {
 		// If the params are set, use them
 		for _, gid := range params["guilds"] {
@@ -1368,9 +1363,9 @@ func (p *EvrPipeline) GetGuildPriorityList(ctx context.Context, userID uuid.UUID
 
 	if len(guildPriority) == 0 {
 		// If the params are not set, use the user's guilds
-		guildPriority = []uuid.UUID{currentGroupID}
+		guildPriority = []uuid.UUID{memberships[0].ID()}
 		for _, groupID := range groupIDs {
-			if groupID != currentGroupID {
+			if groupID != memberships[0].ID() {
 				guildPriority = append(guildPriority, groupID)
 			}
 		}

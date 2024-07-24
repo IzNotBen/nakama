@@ -40,14 +40,6 @@ func (p *EvrPipeline) lobbyMatchmakerStatusRequest(ctx context.Context, logger *
 // authorizeMatchmaking checks if the user is allowed to join a public match or spawn a new match
 func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logger, session *sessionWS, loginSessionID uuid.UUID, groupID uuid.UUID, requireMembership bool) error {
 
-	if groupID == uuid.Nil {
-		var ok bool
-		groupID, ok = ctx.Value(ctxGroupIDKey{}).(uuid.UUID)
-		if !ok {
-			return status.Errorf(codes.InvalidArgument, "Failed to get group ID from context")
-		}
-	}
-
 	// Get the EvrID from the context
 	evrID, ok := ctx.Value(ctxEvrIDKey{}).(evr.EvrID)
 	if !ok {
@@ -159,14 +151,10 @@ func (p *EvrPipeline) authorizeMatchmaking(ctx context.Context, logger *zap.Logg
 
 func (p *EvrPipeline) matchmakingLabelFromFindRequest(ctx context.Context, session *sessionWS, request *evr.LobbyFindSessionRequest) (*EvrMatchState, error) {
 
-	// If the channel is nil, use the players profile channel
-	groupID := request.GroupID
-	if groupID == uuid.Nil {
-		var ok bool
-		groupID, ok = ctx.Value(ctxGroupIDKey{}).(uuid.UUID)
-		if !ok {
-			return nil, status.Errorf(codes.InvalidArgument, "Failed to get group ID from context")
-		}
+	memberships := ctx.Value(ctxMembershipsKey{}).([]GuildGroupMembership)
+
+	if request.GroupID == uuid.Nil {
+		request.GroupID = memberships[0].GuildGroup.ID()
 	}
 
 	_, guildPriority, err := p.GetGuildPriorityList(ctx, session.userID)
@@ -187,7 +175,7 @@ func (p *EvrPipeline) matchmakingLabelFromFindRequest(ctx context.Context, sessi
 	features := ctx.Value(ctxFeaturesKey{}).([]string)
 
 	ml := &EvrMatchState{
-		GroupID: &groupID,
+		GroupID: &request.GroupID,
 
 		Mode:  request.Mode,
 		Level: request.Level,
@@ -317,12 +305,10 @@ func (p *EvrPipeline) lobbyCreateSessionRequest(ctx context.Context, logger *zap
 		}
 	}
 
-	if groupID == uuid.Nil {
-		var ok bool
-		groupID, ok = ctx.Value(ctxGroupIDKey{}).(uuid.UUID)
-		if !ok {
-			return status.Errorf(codes.InvalidArgument, "Failed to get group ID from context")
-		}
+	memberships := ctx.Value(ctxMembershipsKey{}).([]GuildGroupMembership)
+
+	if request.GroupID == uuid.Nil {
+		request.GroupID = memberships[0].GuildGroup.ID()
 	}
 
 	metricsTags := map[string]string{

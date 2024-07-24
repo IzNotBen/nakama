@@ -171,7 +171,7 @@ func TestEvrPipeline_authenticateAccount(t *testing.T) {
 		logger = NewConsoleLogger(os.Stdout, true)
 		t.Run(tt.name, func(t *testing.T) {
 			p := &MockEvrPipeline{}
-			got, err := p.authenticateAccount(tt.args.ctx, logger, tt.args.session, tt.args.deviceId, tt.args.discordId, tt.args.userPassword, tt.args.payload)
+			got, err := p.authenticateAccount(tt.args.ctx, logger, tt.args.session, tt.args.deviceId, tt.args.payload)
 			if status.Code(err) != tt.errCode {
 				t.Errorf("EvrPipeline.authenticateAccount() error = %v, wantErr %v", err, tt.errCode)
 				return
