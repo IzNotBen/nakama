@@ -1247,20 +1247,19 @@ func (p *EvrPipeline) MatchFind(parentCtx context.Context, logger *zap.Logger, s
 				discordIDs := make([]string, 0, len(userIDs))
 				for _, userID := range userIDs {
 
-					did, err := p.discordRegistry.GetDiscordIdByUserId(parentCtx, userID)
+					account, err := p.runtimeModule.AccountGetId(parentCtx, userID.String())
 					if err != nil {
-						logger.Warn("Failed to get discord ID", zap.Error(err))
-						continue
+						logger.Warn("Failed to get account", zap.Error(err))
 					}
-					discordIDs = append(discordIDs, fmt.Sprintf("<@%s>", did))
+					discordIDs = append(discordIDs, account.GetUser().GetDisplayName())
 				}
 
-				discordID, err := p.discordRegistry.GetDiscordIdByUserId(parentCtx, session.userID)
+				account, err := p.runtimeModule.AccountGetId(parentCtx, session.userID.String())
 				if err != nil {
-					logger.Warn("Failed to get discord ID", zap.Error(err))
+					logger.Warn("Failed to get account", zap.Error(err))
 				}
-
-				msg := fmt.Sprintf("<@%s> is matchmaking...", discordID)
+				// Get the user's displayname
+				msg := fmt.Sprintf("*%d* is matchmaking...", account.GetUser().GetDisplayName())
 				if len(discordIDs) > 0 {
 					msg = fmt.Sprintf("%s along with %s...", msg, strings.Join(discordIDs, ", "))
 				}
