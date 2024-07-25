@@ -258,8 +258,8 @@ func (n *RuntimeGoNakamaModule) AuthenticateFacebook(ctx context.Context, token 
 		return "", "", false, errors.New("expects id to be valid, must be 1-128 bytes")
 	}
 
-	dbUserID, dbUsername, created, importFriendsPossible, err := AuthenticateFacebook(ctx, n.logger, n.db, n.socialClient, n.config.GetSocial().FacebookLimitedLogin.AppId, token, username, create)
-	if err == nil && importFriends && importFriendsPossible {
+	dbUserID, dbUsername, created, err := AuthenticateFacebook(ctx, n.logger, n.db, n.socialClient, n.config.GetSocial().FacebookLimitedLogin.AppId, token, username, create)
+	if err == nil && importFriends {
 		// Errors are logged before this point and failure here does not invalidate the whole operation.
 		_ = importFacebookFriends(ctx, n.logger, n.db, n.tracker, n.router, n.socialClient, uuid.FromStringOrNil(dbUserID), dbUsername, token, false)
 	}
@@ -1769,6 +1769,27 @@ func (n *RuntimeGoNakamaModule) NotificationsDelete(ctx context.Context, notific
 	return nil
 }
 
+// @group notifications
+// @summary Get notifications by their id.
+// @param ctx(type=context.Context) The context object represents information about the server and requester.
+// @param userID(type=string) Optional userID to scope results to that user only.
+// @param ids(type=[]string) A list of notification ids.
+// @return notifications([]*api.Notification) A list of notifications.
+// @return error(error) An optional error value if an error occurred.
+func (n *RuntimeGoNakamaModule) NotificationsGetId(ctx context.Context, userID string, ids []string) ([]*runtime.Notification, error) {
+	return NotificationsGetId(ctx, n.logger, n.db, userID, ids...)
+}
+
+// @group notifications
+// @summary Delete notifications by their id.
+// @param ctx(type=context.Context) The context object represents information about the server and requester.
+// @param userID(type=string) Optional userID to scope deletions to that user only. Use empty string to ignore.
+// @param ids(type=[]string) A list of notification ids.
+// @return error(error) An optional error value if an error occurred.
+func (n *RuntimeGoNakamaModule) NotificationsDeleteId(ctx context.Context, userID string, ids []string) error {
+	return NotificationsDeleteId(ctx, n.logger, n.db, userID, ids...)
+}
+
 // @group wallets
 // @summary Update a user's wallet with the given changeset.
 // @param ctx(type=context.Context) The context object represents information about the server and requester.
@@ -2096,12 +2117,13 @@ func (n *RuntimeGoNakamaModule) StorageDelete(ctx context.Context, deletes []*ru
 // @group storage
 // @summary List storage index entries
 // @param indexName(type=string) Name of the index to list entries from.
-// @param callerId(type=string, optional=true) User ID of the caller, will apply permissions checks of the user. If empty defaults to system user and permissions are bypassed.
+// @param callerId(type=string, optional=true) User ID of the caller, will apply permissions checks of the user. If empty, defaults to system user and permissions are bypassed.
 // @param queryString(type=string) Query to filter index entries.
 // @param limit(type=int) Maximum number of results to be returned.
+// @param order(type=[]string, optional=true) The storage object fields to sort the query results by. The prefix '-' before a field name indicates descending order. All specified fields must be indexed and sortable.
 // @return objects(*api.StorageObjectList) A list of storage objects.
 // @return error(error) An optional error value if an error occurred.
-func (n *RuntimeGoNakamaModule) StorageIndexList(ctx context.Context, callerID, indexName, query string, limit int) (*api.StorageObjects, error) {
+func (n *RuntimeGoNakamaModule) StorageIndexList(ctx context.Context, callerID, indexName, query string, limit int, order []string) (*api.StorageObjects, error) {
 	cid := uuid.Nil
 	if callerID != "" {
 		id, err := uuid.FromString(callerID)
@@ -2119,7 +2141,7 @@ func (n *RuntimeGoNakamaModule) StorageIndexList(ctx context.Context, callerID, 
 		return nil, errors.New("limit must be 1-10000")
 	}
 
-	return n.storageIndex.List(ctx, cid, indexName, query, limit)
+	return n.storageIndex.List(ctx, cid, indexName, query, limit, order)
 }
 
 // @group users
@@ -3855,7 +3877,7 @@ func (n *RuntimeGoNakamaModule) MetricsTimerRecord(name string, tags map[string]
 // @param userId(type=string) The ID of the user whose friends, invites, invited, and blocked you want to list.
 // @param limit(type=int) The number of friends to retrieve in this page of results. No more than 100 limit allowed per result.
 // @param state(type=int, optional=true) The state of the friendship with the user. If unspecified this returns friends in all states for the user.
-// @param cursor(type=string, optional=true, default="") Pagination cursor from previous result. Don't set to start fetching from the beginning.
+// @param cursor(type=string) Pagination cursor from previous result. Set to "" to start fetching from the beginning.
 // @return friends([]*api.Friend) The user information for users that are friends of the current user.
 // @return cursor(string) An optional next page cursor that can be used to retrieve the next page of records (if any). Will be set to "" or nil when fetching last available page.
 // @return error(error) An optional error value if an error occurred.
@@ -3884,6 +3906,33 @@ func (n *RuntimeGoNakamaModule) FriendsList(ctx context.Context, userID string, 
 	}
 
 	return friends.Friends, friends.Cursor, nil
+}
+
+// @group friends
+// @summary List friends of friends.
+// @param ctx(type=context.Context) The context object represents information about the server and requester.
+// @param userId(type=string) The ID of the user whose friends of friends you want to list.
+// @param limit(type=int) The number of friends of friends to retrieve in this page of results. No more than 100 limit allowed per result.
+// @param cursor(type=string) Pagination cursor from previous result. Set to "" to start fetching from the beginning.
+// @return friends([]*api.FriendsOfFriendsList_FriendOfFriend) The user information for users that are friends of friends the current user.
+// @return cursor(string) An optional next page cursor that can be used to retrieve the next page of records (if any). Will be set to "" or nil when fetching last available page.
+// @return error(error) An optional error value if an error occurred.
+func (n *RuntimeGoNakamaModule) FriendsOfFriendsList(ctx context.Context, userID string, limit int, cursor string) ([]*api.FriendsOfFriendsList_FriendOfFriend, string, error) {
+	uid, err := uuid.FromString(userID)
+	if err != nil {
+		return nil, "", errors.New("expects user ID to be a valid identifier")
+	}
+
+	if limit < 1 || limit > 1000 {
+		return nil, "", errors.New("expects limit to be 1-1000")
+	}
+
+	friends, err := ListFriendsOfFriends(ctx, n.logger, n.db, n.statusRegistry, uid, limit, cursor)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return friends.FriendsOfFriends, friends.Cursor, nil
 }
 
 // @group friends
@@ -4052,7 +4101,7 @@ func (n *RuntimeGoNakamaModule) FriendsBlock(ctx context.Context, userID string,
 	allIDs = append(allIDs, ids...)
 	allIDs = append(allIDs, fetchIDs...)
 
-	err = BlockFriends(ctx, n.logger, n.db, userUUID, allIDs)
+	err = BlockFriends(ctx, n.logger, n.db, n.tracker, userUUID, allIDs)
 	if err != nil {
 		return err
 	}

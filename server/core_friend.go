@@ -29,7 +29,7 @@ import (
 	"github.com/gofrs/uuid/v5"
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/runtime"
-	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -216,6 +216,149 @@ FROM users, user_edge WHERE id = destination_id AND source_id = $1`
 	}
 
 	return &api.FriendList{Friends: friends, Cursor: outgoingCursor}, nil
+}
+
+type friendsOfFriendsListCursor struct {
+	SourceId      string
+	DestinationId string
+}
+
+func ListFriendsOfFriends(ctx context.Context, logger *zap.Logger, db *sql.DB, statusRegistry StatusRegistry, userID uuid.UUID, limit int, cursor string) (*api.FriendsOfFriendsList, error) {
+	var incomingCursor *friendsOfFriendsListCursor
+	if cursor != "" {
+		cb, err := base64.StdEncoding.DecodeString(cursor)
+		if err != nil {
+			return nil, runtime.ErrFriendInvalidCursor
+		}
+		incomingCursor = &friendsOfFriendsListCursor{}
+		if err = gob.NewDecoder(bytes.NewReader(cb)).Decode(incomingCursor); err != nil {
+			return nil, runtime.ErrFriendInvalidCursor
+		}
+
+		if incomingCursor.SourceId == "" || incomingCursor.DestinationId == "" {
+			return nil, runtime.ErrFriendInvalidCursor
+		}
+	}
+
+	// Grab all friends
+	query := `SELECT destination_id FROM user_edge
+WHERE source_id = $1
+AND state = 0
+ORDER BY destination_id`
+	friendsRows, err := db.QueryContext(ctx, query, userID)
+	if err != nil {
+		logger.Error("Could not list friends of friends.", zap.Error(err))
+		return nil, err
+	}
+	defer friendsRows.Close()
+
+	friends := make([]uuid.UUID, 0)
+	for friendsRows.Next() {
+		var friendId uuid.UUID
+		if err = friendsRows.Scan(&friendId); err != nil {
+			logger.Error("Error scanning friends.", zap.Error(err))
+			return nil, err
+		}
+		friends = append(friends, friendId)
+	}
+	_ = friendsRows.Close()
+
+	if len(friends) == 0 {
+		return &api.FriendsOfFriendsList{FriendsOfFriends: []*api.FriendsOfFriendsList_FriendOfFriend{}}, nil
+	}
+
+	type friendOfFriend struct {
+		Referrer *uuid.UUID
+		UserID   *uuid.UUID
+	}
+
+	// Go over friends of friends
+	friendsOfFriends := make([]*friendOfFriend, 0)
+	userIds := make([]string, 0)
+	var outgoingCursor string
+friendLoop:
+	for _, f := range friends {
+		if incomingCursor != nil && f.String() != incomingCursor.SourceId {
+			continue
+		}
+		query = `SELECT source_id, destination_id
+FROM user_edge
+WHERE source_id = $1
+AND destination_id != $2
+AND destination_id != ALL($3::UUID[])
+AND state = 0
+`
+		params := []any{f, userID, friends, limit + 1}
+
+		if incomingCursor != nil {
+			query += " AND (source_id, destination_id) >= ($5, $6) "
+			params = append(params, incomingCursor.SourceId, incomingCursor.DestinationId)
+		}
+
+		query += "ORDER BY source_id, destination_id LIMIT $4"
+
+		rows, err := db.QueryContext(ctx, query, params...)
+		if err != nil {
+			logger.Error("Could not list friends of friends.", zap.Error(err))
+			return nil, err
+		}
+
+		for rows.Next() {
+			var sourceId, destinationId uuid.UUID
+			if err = rows.Scan(&sourceId, &destinationId); err != nil {
+				logger.Error("Error scanning friends.", zap.Error(err))
+				rows.Close()
+				return nil, err
+			}
+
+			if len(friendsOfFriends) >= limit {
+				_ = rows.Close()
+				cursorBuf := new(bytes.Buffer)
+				if err := gob.NewEncoder(cursorBuf).Encode(&friendsOfFriendsListCursor{
+					SourceId:      sourceId.String(),
+					DestinationId: destinationId.String(),
+				}); err != nil {
+					logger.Error("Error creating friends of friends list cursor", zap.Error(err))
+					return nil, err
+				}
+				outgoingCursor = base64.StdEncoding.EncodeToString(cursorBuf.Bytes())
+				break friendLoop
+			}
+
+			friendsOfFriends = append(friendsOfFriends, &friendOfFriend{
+				Referrer: &sourceId,
+				UserID:   &destinationId,
+			})
+			userIds = append(userIds, destinationId.String())
+		}
+		rows.Close()
+	}
+
+	users, err := GetUsers(ctx, logger, db, statusRegistry, userIds, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	userMap := make(map[string]*api.User, len(users.Users))
+	for _, user := range users.Users {
+		userMap[user.Id] = user
+	}
+
+	fof := make([]*api.FriendsOfFriendsList_FriendOfFriend, 0, len(friendsOfFriends))
+	for _, friend := range friendsOfFriends {
+		friendUser, ok := userMap[friend.UserID.String()]
+		if !ok {
+			// can happen if account was deleted before GetUsers call, skip.
+			continue
+		}
+
+		fof = append(fof, &api.FriendsOfFriendsList_FriendOfFriend{
+			Referrer: friend.Referrer.String(),
+			User:     friendUser,
+		})
+	}
+
+	return &api.FriendsOfFriendsList{FriendsOfFriends: fof, Cursor: outgoingCursor}, nil
 }
 
 func AddFriends(ctx context.Context, logger *zap.Logger, db *sql.DB, tracker Tracker, messageRouter MessageRouter, userID uuid.UUID, username string, friendIDs []string) error {
@@ -410,7 +553,7 @@ func deleteFriend(ctx context.Context, logger *zap.Logger, tx *sql.Tx, userID uu
 	return nil
 }
 
-func BlockFriends(ctx context.Context, logger *zap.Logger, db *sql.DB, currentUser uuid.UUID, ids []string) error {
+func BlockFriends(ctx context.Context, logger *zap.Logger, db *sql.DB, tracker Tracker, currentUser uuid.UUID, ids []string) error {
 	uniqueFriendIDs := make(map[string]struct{})
 	for _, fid := range ids {
 		uniqueFriendIDs[fid] = struct{}{}
@@ -418,7 +561,7 @@ func BlockFriends(ctx context.Context, logger *zap.Logger, db *sql.DB, currentUs
 
 	if err := ExecuteInTx(ctx, db, func(tx *sql.Tx) error {
 		for id := range uniqueFriendIDs {
-			if blockFriendErr := blockFriend(ctx, logger, tx, currentUser, id); blockFriendErr != nil {
+			if blockFriendErr := blockFriend(ctx, logger, tx, tracker, currentUser, id); blockFriendErr != nil {
 				return blockFriendErr
 			}
 		}
@@ -431,11 +574,10 @@ func BlockFriends(ctx context.Context, logger *zap.Logger, db *sql.DB, currentUs
 	return nil
 }
 
-func blockFriend(ctx context.Context, logger *zap.Logger, tx *sql.Tx, userID uuid.UUID, friendID string) error {
+func blockFriend(ctx context.Context, logger *zap.Logger, tx *sql.Tx, tracker Tracker, userID uuid.UUID, friendID string) error {
 	// Try to update any previous edge between these users.
 	res, err := tx.ExecContext(ctx, "UPDATE user_edge SET state = 3, update_time = now() WHERE source_id = $1 AND destination_id = $2",
 		userID, friendID)
-
 	if err != nil {
 		logger.Debug("Failed to update user edge state.", zap.Error(err), zap.String("user", userID.String()), zap.String("friend", friendID))
 		return err
@@ -483,6 +625,20 @@ WHERE EXISTS (SELECT id FROM users WHERE id = $2::UUID)`
 			return err
 		}
 	}
+
+	stream := PresenceStream{
+		Mode: StreamModeDM,
+	}
+	fuid := uuid.Must(uuid.FromString(friendID))
+	if friendID > userID.String() {
+		stream.Subject = userID
+		stream.Subcontext = fuid
+	} else {
+		stream.Subject = fuid
+		stream.Subcontext = userID
+	}
+
+	tracker.UntrackByStream(stream)
 
 	return nil
 }

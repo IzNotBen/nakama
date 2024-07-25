@@ -69,6 +69,7 @@ type RuntimeJavascriptCallbacks struct {
 	TournamentEnd                  string
 	TournamentReset                string
 	LeaderboardReset               string
+	Shutdown                       string
 	PurchaseNotificationApple      string
 	SubscriptionNotificationApple  string
 	PurchaseNotificationGoogle     string
@@ -104,6 +105,7 @@ func (im *RuntimeJavascriptInitModule) mappings(r *goja.Runtime) map[string]func
 		"registerTournamentEnd":                           im.registerTournamentEnd(r),
 		"registerTournamentReset":                         im.registerTournamentReset(r),
 		"registerLeaderboardReset":                        im.registerLeaderboardReset(r),
+		"registerShutdown":                                im.registerShutdown(r),
 		"registerPurchaseNotificationApple":               im.registerPurchaseNotificationApple(r),
 		"registerSubscriptionNotificationApple":           im.registerSubscriptionNotificationApple(r),
 		"registerPurchaseNotificationGoogle":              im.registerPurchaseNotificationGoogle(r),
@@ -137,6 +139,8 @@ func (im *RuntimeJavascriptInitModule) mappings(r *goja.Runtime) map[string]func
 		"registerAfterListChannelMessages":                im.registerAfterListChannelMessages(r),
 		"registerBeforeListFriends":                       im.registerBeforeListFriends(r),
 		"registerAfterListFriends":                        im.registerAfterListFriends(r),
+		"registerBeforeListFriendsOfFriends":              im.registerBeforeListFriendsOfFriends(r),
+		"registerAfterListFriendsOfFriends":               im.registerAfterListFriendsOfFriends(r),
 		"registerBeforeAddFriends":                        im.registerBeforeAddFriends(r),
 		"registerAfterAddFriends":                         im.registerAfterAddFriends(r),
 		"registerBeforeDeleteFriends":                     im.registerBeforeDeleteFriends(r),
@@ -354,6 +358,7 @@ func (im *RuntimeJavascriptInitModule) getRegisteredFnIdentifier(r *goja.Runtime
 				return s, nil
 			}
 		}
+
 		if expStat, ok := exp.(*ast.ExpressionStatement); ok {
 			if callExp, ok := expStat.Expression.(*ast.CallExpression); ok {
 				if callee, ok := callExp.Callee.(*ast.DotExpression); ok {
@@ -373,6 +378,8 @@ func (im *RuntimeJavascriptInitModule) getRegisteredFnIdentifier(r *goja.Runtime
 							return modNameArg.Name.String(), nil
 						} else if modNameArg, ok := callExp.ArgumentList[1].(*ast.StringLiteral); ok {
 							return modNameArg.Value.String(), nil
+						} else if modNameArg, ok := callExp.ArgumentList[1].(*ast.DotExpression); ok {
+							return string(modNameArg.Identifier.Name), nil
 						} else {
 							return "", inlinedFunctionError
 						}
@@ -495,6 +502,14 @@ func (im *RuntimeJavascriptInitModule) registerBeforeListFriends(r *goja.Runtime
 
 func (im *RuntimeJavascriptInitModule) registerAfterListFriends(r *goja.Runtime) func(goja.FunctionCall) goja.Value {
 	return im.registerHook(r, RuntimeExecutionModeAfter, "registerAfterListFriends", "listfriends")
+}
+
+func (im *RuntimeJavascriptInitModule) registerBeforeListFriendsOfFriends(r *goja.Runtime) func(goja.FunctionCall) goja.Value {
+	return im.registerHook(r, RuntimeExecutionModeBefore, "registerBeforeListFriendsOfFriends", "listfriendsoffriends")
+}
+
+func (im *RuntimeJavascriptInitModule) registerAfterListFriendsOfFriends(r *goja.Runtime) func(goja.FunctionCall) goja.Value {
+	return im.registerHook(r, RuntimeExecutionModeAfter, "registerAfterListFriendsOfFriends", "listfriendsoffriends")
 }
 
 func (im *RuntimeJavascriptInitModule) registerBeforeAddFriends(r *goja.Runtime) func(goja.FunctionCall) goja.Value {
@@ -1020,14 +1035,23 @@ func (im *RuntimeJavascriptInitModule) registerStorageIndex(r *goja.Runtime) fun
 			panic(r.NewTypeError("expects an array of strings"))
 		}
 
-		idxMaxEntries := int(getJsInt(r, f.Argument(4)))
-
-		indexOnly := false
-		if !goja.IsUndefined(f.Argument(5)) && !goja.IsNull(f.Argument(5)) {
-			indexOnly = getJsBool(r, f.Argument(5))
+		ownersSortArray := f.Argument(4)
+		if goja.IsUndefined(ownersSortArray) || goja.IsNull(ownersSortArray) {
+			panic(r.NewTypeError("expects an array of fields"))
+		}
+		sortableFields, err := exportToSlice[[]string](ownersSortArray)
+		if err != nil {
+			panic(r.NewTypeError("expects an array of strings"))
 		}
 
-		if err := im.storageIndex.CreateIndex(context.Background(), idxName, idxCollection, idxKey, fields, idxMaxEntries, indexOnly); err != nil {
+		idxMaxEntries := int(getJsInt(r, f.Argument(5)))
+
+		indexOnly := false
+		if !goja.IsUndefined(f.Argument(6)) && !goja.IsNull(f.Argument(6)) {
+			indexOnly = getJsBool(r, f.Argument(6))
+		}
+
+		if err := im.storageIndex.CreateIndex(context.Background(), idxName, idxCollection, idxKey, fields, sortableFields, idxMaxEntries, indexOnly); err != nil {
 			panic(r.NewGoError(fmt.Errorf("Failed to register storage index: %s", err.Error())))
 		}
 
@@ -1084,6 +1108,10 @@ func (im *RuntimeJavascriptInitModule) registerHook(r *goja.Runtime, execMode Ru
 		}
 		im.registerCallbackFn(execMode, lKey, fnKey)
 		im.announceCallbackFn(execMode, lKey)
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		return goja.Undefined()
 	}
@@ -1187,6 +1215,10 @@ func (im *RuntimeJavascriptInitModule) registerRtBefore(r *goja.Runtime) func(go
 		im.registerCallbackFn(RuntimeExecutionModeBefore, lKey, fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeBefore, lKey)
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		return goja.Undefined()
 	}
 }
@@ -1218,6 +1250,10 @@ func (im *RuntimeJavascriptInitModule) registerRtAfter(r *goja.Runtime) func(goj
 		lKey := strings.ToLower(RTAPI_PREFIX + key)
 		im.registerCallbackFn(RuntimeExecutionModeAfter, lKey, fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeAfter, lKey)
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		return goja.Undefined()
 	}
@@ -1292,6 +1328,10 @@ func (im *RuntimeJavascriptInitModule) registerMatchmakerMatched(r *goja.Runtime
 		im.registerCallbackFn(RuntimeExecutionModeMatchmaker, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeMatchmaker, "")
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		return goja.Undefined()
 	}
 }
@@ -1310,6 +1350,10 @@ func (im *RuntimeJavascriptInitModule) registerTournamentEnd(r *goja.Runtime) fu
 		}
 		im.registerCallbackFn(RuntimeExecutionModeTournamentEnd, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeTournamentEnd, "")
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		return goja.Undefined()
 	}
@@ -1330,6 +1374,10 @@ func (im *RuntimeJavascriptInitModule) registerTournamentReset(r *goja.Runtime) 
 		im.registerCallbackFn(RuntimeExecutionModeTournamentReset, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeTournamentReset, "")
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		return goja.Undefined()
 	}
 }
@@ -1348,6 +1396,33 @@ func (im *RuntimeJavascriptInitModule) registerLeaderboardReset(r *goja.Runtime)
 		}
 		im.registerCallbackFn(RuntimeExecutionModeLeaderboardReset, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeLeaderboardReset, "")
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
+		return goja.Undefined()
+	}
+}
+
+func (im *RuntimeJavascriptInitModule) registerShutdown(r *goja.Runtime) func(goja.FunctionCall) goja.Value {
+	return func(f goja.FunctionCall) goja.Value {
+		fn := f.Argument(0)
+		_, ok := goja.AssertFunction(fn)
+		if !ok {
+			panic(r.NewTypeError("expects a function"))
+		}
+
+		fnKey, err := im.extractHookFn("registerShutdown")
+		if err != nil {
+			panic(r.NewGoError(err))
+		}
+		im.registerCallbackFn(RuntimeExecutionModeShutdown, "", fnKey)
+		im.announceCallbackFn(RuntimeExecutionModeShutdown, "")
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		return goja.Undefined()
 	}
@@ -1368,6 +1443,10 @@ func (im *RuntimeJavascriptInitModule) registerPurchaseNotificationApple(r *goja
 		im.registerCallbackFn(RuntimeExecutionModePurchaseNotificationApple, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModePurchaseNotificationApple, "")
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		return goja.Undefined()
 	}
 }
@@ -1386,6 +1465,10 @@ func (im *RuntimeJavascriptInitModule) registerSubscriptionNotificationApple(r *
 		}
 		im.registerCallbackFn(RuntimeExecutionModeSubscriptionNotificationApple, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeSubscriptionNotificationApple, "")
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		return goja.Undefined()
 	}
@@ -1406,6 +1489,10 @@ func (im *RuntimeJavascriptInitModule) registerPurchaseNotificationGoogle(r *goj
 		im.registerCallbackFn(RuntimeExecutionModePurchaseNotificationGoogle, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModePurchaseNotificationGoogle, "")
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		return goja.Undefined()
 	}
 }
@@ -1424,6 +1511,10 @@ func (im *RuntimeJavascriptInitModule) registerSubscriptionNotificationGoogle(r 
 		}
 		im.registerCallbackFn(RuntimeExecutionModeSubscriptionNotificationGoogle, "", fnKey)
 		im.announceCallbackFn(RuntimeExecutionModeSubscriptionNotificationGoogle, "")
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		return goja.Undefined()
 	}
@@ -1459,6 +1550,10 @@ func (im *RuntimeJavascriptInitModule) registerMatch(r *goja.Runtime) func(goja.
 		}
 		functions.initFn = fnKey
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		fnValue, ok = funcMap[string(MatchJoinAttempt)]
 		if !ok {
 			panic(r.NewTypeError(string(MatchJoinAttempt) + " not found"))
@@ -1472,6 +1567,10 @@ func (im *RuntimeJavascriptInitModule) registerMatch(r *goja.Runtime) func(goja.
 			panic(r.NewGoError(err))
 		}
 		functions.joinAttemptFn = fnKey
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		fnValue, ok = funcMap[string(MatchJoin)]
 		if !ok {
@@ -1487,6 +1586,10 @@ func (im *RuntimeJavascriptInitModule) registerMatch(r *goja.Runtime) func(goja.
 		}
 		functions.joinFn = fnKey
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		fnValue, ok = funcMap[string(MatchLeave)]
 		if !ok {
 			panic(r.NewTypeError(string(MatchLeave) + " not found"))
@@ -1500,6 +1603,10 @@ func (im *RuntimeJavascriptInitModule) registerMatch(r *goja.Runtime) func(goja.
 			panic(r.NewGoError(err))
 		}
 		functions.leaveFn = fnKey
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		fnValue, ok = funcMap[string(MatchLoop)]
 		if !ok {
@@ -1515,6 +1622,10 @@ func (im *RuntimeJavascriptInitModule) registerMatch(r *goja.Runtime) func(goja.
 		}
 		functions.loopFn = fnKey
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		fnValue, ok = funcMap[string(MatchTerminate)]
 		if !ok {
 			panic(r.NewTypeError(string(MatchTerminate) + " not found"))
@@ -1529,6 +1640,10 @@ func (im *RuntimeJavascriptInitModule) registerMatch(r *goja.Runtime) func(goja.
 		}
 		functions.terminateFn = fnKey
 
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
+
 		fnValue, ok = funcMap[string(MatchSignal)]
 		if !ok {
 			panic(r.NewTypeError(string(MatchSignal) + " not found"))
@@ -1542,6 +1657,10 @@ func (im *RuntimeJavascriptInitModule) registerMatch(r *goja.Runtime) func(goja.
 			panic(r.NewGoError(err))
 		}
 		functions.signalFn = fnKey
+
+		if err = im.checkFnScope(r, fnKey); err != nil {
+			panic(r.NewGoError(err))
+		}
 
 		im.MatchCallbacks.Add(name, functions)
 
@@ -1616,14 +1735,23 @@ func (im *RuntimeJavascriptInitModule) getMatchHookFnIdentifier(r *goja.Runtime,
 						}
 
 						for _, prop := range obj.Value {
-							key, _ := prop.(*ast.PropertyKeyed).Key.(*ast.StringLiteral)
-							if key.Literal == string(matchfnId) {
-								if sl, ok := prop.(*ast.PropertyKeyed).Value.(*ast.StringLiteral); ok {
-									return sl.Literal, nil
-								} else if id, ok := prop.(*ast.PropertyKeyed).Value.(*ast.Identifier); ok {
-									return id.Name.String(), nil
-								} else {
-									return "", inlinedFunctionError
+							if propKeyed, ok := prop.(*ast.PropertyKeyed); ok {
+								if key, ok := propKeyed.Key.(*ast.StringLiteral); ok {
+									if key.Literal == string(matchfnId) {
+										if sl, ok := propKeyed.Value.(*ast.StringLiteral); ok {
+											return sl.Literal, nil
+										} else if id, ok := propKeyed.Value.(*ast.Identifier); ok {
+											return id.Name.String(), nil
+										} else {
+											return "", inlinedFunctionError
+										}
+									}
+								}
+							}
+
+							if propShort, ok := prop.(*ast.PropertyShort); ok {
+								if string(propShort.Name.Name) == string(matchfnId) {
+									return string(propShort.Name.Name), nil
 								}
 							}
 						}
@@ -1635,6 +1763,13 @@ func (im *RuntimeJavascriptInitModule) getMatchHookFnIdentifier(r *goja.Runtime,
 	}
 
 	return "", errors.New("not found")
+}
+
+func (im *RuntimeJavascriptInitModule) checkFnScope(r *goja.Runtime, key string) error {
+	if r.GlobalObject().Get(key) == nil {
+		return fmt.Errorf("function %q not registered in the global object scope", key)
+	}
+	return nil
 }
 
 func (im *RuntimeJavascriptInitModule) registerCallbackFn(mode RuntimeExecutionMode, key string, fn string) {
@@ -1653,6 +1788,8 @@ func (im *RuntimeJavascriptInitModule) registerCallbackFn(mode RuntimeExecutionM
 		im.Callbacks.TournamentReset = fn
 	case RuntimeExecutionModeLeaderboardReset:
 		im.Callbacks.LeaderboardReset = fn
+	case RuntimeExecutionModeShutdown:
+		im.Callbacks.Shutdown = fn
 	case RuntimeExecutionModePurchaseNotificationApple:
 		im.Callbacks.PurchaseNotificationApple = fn
 	case RuntimeExecutionModeSubscriptionNotificationApple:

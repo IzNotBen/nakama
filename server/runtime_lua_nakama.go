@@ -141,6 +141,7 @@ func (n *RuntimeLuaNakamaModule) Loader(l *lua.LState) int {
 		"register_tournament_end":            n.registerTournamentEnd,
 		"register_tournament_reset":          n.registerTournamentReset,
 		"register_leaderboard_reset":         n.registerLeaderboardReset,
+		"register_shutdown":                  n.registerShutdown,
 		"register_storage_index":             n.registerStorageIndex,
 		"register_storage_index_filter":      n.registerStorageIndexFilter,
 		"run_once":                           n.runOnce,
@@ -243,6 +244,8 @@ func (n *RuntimeLuaNakamaModule) Loader(l *lua.LState) int {
 		"notifications_send":                 n.notificationsSend,
 		"notification_send_all":              n.notificationSendAll,
 		"notifications_delete":               n.notificationsDelete,
+		"notifications_get_id":               n.notificationsGetId,
+		"notifications_delete_id":            n.notificationsDeleteId,
 		"wallet_update":                      n.walletUpdate,
 		"wallets_update":                     n.walletsUpdate,
 		"wallet_ledger_update":               n.walletLedgerUpdate,
@@ -297,6 +300,7 @@ func (n *RuntimeLuaNakamaModule) Loader(l *lua.LState) int {
 		"groups_get_random":                         n.groupsGetRandom,
 		"user_groups_list":                          n.userGroupsList,
 		"friends_list":                              n.friendsList,
+		"friends_of_friends_list":                   n.friendsOfFriendsList,
 		"friends_add":                               n.friendsAdd,
 		"friends_delete":                            n.friendsDelete,
 		"friends_block":                             n.friendsBlock,
@@ -505,12 +509,29 @@ func (n *RuntimeLuaNakamaModule) registerLeaderboardReset(l *lua.LState) int {
 	return 0
 }
 
+// @group hooks
+// @summary Registers a function to be run when the server received a shutdown signal. The function only fires if grace_period_sec > 0.
+// @param fn(type=function) A function reference which will be executed on server shutdown.
+// @return error(error) An optional error value if an error occurred.
+func (n *RuntimeLuaNakamaModule) registerShutdown(l *lua.LState) int {
+	fn := l.CheckFunction(1)
+
+	if n.registerCallbackFn != nil {
+		n.registerCallbackFn(RuntimeExecutionModeShutdown, "", fn)
+	}
+	if n.announceCallbackFn != nil {
+		n.announceCallbackFn(RuntimeExecutionModeShutdown, "")
+	}
+	return 0
+}
+
 // @group storage
 // @summary Create a new storage index.
 // @param indexName(type=string) Name of the index to list entries from.
 // @param collection(type=string) Collection of storage engine to index objects from.
 // @param key(type=string) Key of storage objects to index. Set to empty string to index all objects of collection.
 // @param fields(type=table) A table of strings with the keys of the storage object whose values are to be indexed.
+// @param sortableFields(type=table, optional=true) A table of strings with the keys of the storage object whose values are to be sortable. The keys must exist within the previously specified fields to be indexed.
 // @param maxEntries(type=int) Maximum number of entries kept in the index.
 // @return error(error) An optional error value if an error occurred.
 func (n *RuntimeLuaNakamaModule) registerStorageIndex(l *lua.LState) int {
@@ -526,10 +547,19 @@ func (n *RuntimeLuaNakamaModule) registerStorageIndex(l *lua.LState) int {
 		}
 		fields = append(fields, v.String())
 	})
-	maxEntries := l.CheckInt(5)
-	indexOnly := l.OptBool(6, false)
+	sortFieldsTable := l.CheckTable(5)
+	sortableFields := make([]string, 0, sortFieldsTable.Len())
+	sortFieldsTable.ForEach(func(k, v lua.LValue) {
+		if v.Type() != lua.LTString {
+			l.ArgError(5, "expects each field to be string")
+			return
+		}
+		sortableFields = append(sortableFields, v.String())
+	})
+	maxEntries := l.CheckInt(6)
+	indexOnly := l.OptBool(7, false)
 
-	if err := n.storageIndex.CreateIndex(context.Background(), idxName, collection, key, fields, maxEntries, indexOnly); err != nil {
+	if err := n.storageIndex.CreateIndex(context.Background(), idxName, collection, key, fields, sortableFields, maxEntries, indexOnly); err != nil {
 		l.RaiseError("failed to create storage index: %s", err.Error())
 	}
 
@@ -1925,14 +1955,14 @@ func (n *RuntimeLuaNakamaModule) authenticateFacebook(l *lua.LState) int {
 	// Parse create flag, if any.
 	create := l.OptBool(4, true)
 
-	dbUserID, dbUsername, created, importFriendsPossible, err := AuthenticateFacebook(l.Context(), n.logger, n.db, n.socialClient, n.config.GetSocial().FacebookLimitedLogin.AppId, token, username, create)
+	dbUserID, dbUsername, created, err := AuthenticateFacebook(l.Context(), n.logger, n.db, n.socialClient, n.config.GetSocial().FacebookLimitedLogin.AppId, token, username, create)
 	if err != nil {
 		l.RaiseError("error authenticating: %v", err.Error())
 		return 0
 	}
 
 	// Import friends if requested.
-	if importFriends && importFriendsPossible {
+	if importFriends {
 		// Errors are logged before this point and failure here does not invalidate the whole operation.
 		_ = importFacebookFriends(l.Context(), n.logger, n.db, n.tracker, n.router, n.socialClient, uuid.FromStringOrNil(dbUserID), dbUsername, token, false)
 	}
@@ -5259,6 +5289,100 @@ func (n *RuntimeLuaNakamaModule) notificationsDelete(l *lua.LState) int {
 		if err := NotificationDelete(l.Context(), n.logger, n.db, uid, notificationIDs); err != nil {
 			l.RaiseError(fmt.Sprintf("failed to delete notifications: %s", err.Error()))
 		}
+	}
+
+	return 0
+}
+
+// @group notifications
+// @summary Get notifications by their id.
+// @param ctx(type=context.Context) The context object represents information about the server and requester.
+// @param ids(type=table) A list of notification ids.
+// @param userID(type=string) Optional userID to scope results to that user only.
+// @return notifications(type=table) A list of notifications.
+// @return error(error) An optional error value if an error occurred.
+func (n *RuntimeLuaNakamaModule) notificationsGetId(l *lua.LState) int {
+	notifIdsIn := l.CheckTable(1)
+
+	notifIdsTable, ok := RuntimeLuaConvertLuaValue(notifIdsIn).([]interface{})
+	if !ok {
+		l.ArgError(1, "invalid user ids list")
+		return 0
+	}
+
+	notifIds := make([]string, 0, len(notifIdsTable))
+	for _, id := range notifIdsTable {
+		if ids, ok := id.(string); !ok || ids == "" {
+			l.ArgError(1, "each notification id must be a string")
+			return 0
+		} else if _, err := uuid.FromString(ids); err != nil {
+			l.ArgError(1, "each notification id must be a valid id")
+			return 0
+		} else {
+			notifIds = append(notifIds, ids)
+		}
+	}
+
+	userId := l.OptString(2, "")
+
+	notifications, err := NotificationsGetId(l.Context(), n.logger, n.db, userId, notifIds...)
+	if err != nil {
+		l.RaiseError(fmt.Sprintf("failed to get notifications: %s", err.Error()))
+	}
+
+	notificationsTable := l.CreateTable(len(notifications), 0)
+	for i, notif := range notifications {
+		notifTable := l.CreateTable(0, 7)
+		notifTable.RawSetString("code", lua.LNumber(notif.Code))
+		valueTable := RuntimeLuaConvertMap(l, notif.Content)
+		notifTable.RawSetString("content", valueTable)
+		if notif.Sender != "" {
+			notifTable.RawSetString("sender_id", lua.LString(notif.Sender))
+		}
+		notifTable.RawSetString("subject", lua.LString(notif.Subject))
+		notifTable.RawSetString("user_id", lua.LString(notif.UserID))
+		notifTable.RawSetString("create_time", lua.LNumber(notif.CreateTime.Seconds))
+		notifTable.RawSetString("persistent", lua.LBool(notif.Persistent))
+
+		notificationsTable.RawSetInt(i+1, notifTable)
+	}
+
+	l.Push(notificationsTable)
+
+	return 1
+}
+
+// @group notifications
+// @summary Delete notifications by their id.
+// @param ids(type=table) A list of notification ids.
+// @param userID(type=string) Optional userID to scope deletions to that user only.
+// @return error(error) An optional error value if an error occurred.
+func (n *RuntimeLuaNakamaModule) notificationsDeleteId(l *lua.LState) int {
+	notifIdsIn := l.OptTable(1, nil)
+
+	notifIdsTable, ok := RuntimeLuaConvertLuaValue(notifIdsIn).([]interface{})
+	if !ok {
+		l.ArgError(1, "invalid user ids list")
+		return 0
+	}
+
+	notifIds := make([]string, 0, len(notifIdsTable))
+	for _, id := range notifIdsTable {
+		if ids, ok := id.(string); !ok || ids == "" {
+			l.ArgError(1, "each notification id must be a string")
+			return 0
+		} else if _, err := uuid.FromString(ids); err != nil {
+			l.ArgError(1, "each notification id must be a valid id")
+			return 0
+		} else {
+			notifIds = append(notifIds, ids)
+		}
+	}
+
+	userId := l.OptString(2, "")
+
+	if err := NotificationsDeleteId(l.Context(), n.logger, n.db, userId, notifIds...); err != nil {
+		l.RaiseError("failed to delete notifications: %s", err.Error())
 	}
 
 	return 0
@@ -9447,6 +9571,63 @@ func (n *RuntimeLuaNakamaModule) friendsList(l *lua.LState) int {
 	} else {
 		l.Push(lua.LString(friends.Cursor))
 	}
+
+	return 2
+}
+
+// @group friends
+// @summary List all friends, invites, invited, and blocked which belong to a user.
+// @param userId(type=string) The ID of the user whose friends, invites, invited, and blocked you want to list.
+// @param limit(type=number, optional=true) The number of friends to retrieve in this page of results. No more than 100 limit allowed per result.
+// @param cursor(type=string, optional=true, default="") Pagination cursor from previous result. Don't set to start fetching from the beginning.
+// @return friendsOfFriends(table) The user information for users that are friends of friends of the current user.
+// @return cursor(string) An optional next page cursor that can be used to retrieve the next page of records (if any). Will be set to "" or nil when fetching last available page.
+// @return error(error) An optional error value if an error occurred.
+func (n *RuntimeLuaNakamaModule) friendsOfFriendsList(l *lua.LState) int {
+	userID, err := uuid.FromString(l.CheckString(1))
+	if err != nil {
+		l.ArgError(1, "expects user ID to be a valid identifier")
+		return 0
+	}
+
+	limit := l.OptInt(2, 100)
+	if limit < 1 || limit > 1000 {
+		l.ArgError(2, "expects limit to be 1-1000")
+		return 0
+	}
+
+	cursor := l.OptString(3, "")
+
+	friends, err := ListFriendsOfFriends(l.Context(), n.logger, n.db, n.statusRegistry, userID, limit, cursor)
+	if err != nil {
+		l.RaiseError("error while trying to list friends of friends for a user: %v", err.Error())
+		return 0
+	}
+
+	userFriendsOfFriends := l.CreateTable(len(friends.FriendsOfFriends), 0)
+	for i, f := range friends.FriendsOfFriends {
+		u := f.User
+
+		fut, err := userToLuaTable(l, u)
+		if err != nil {
+			l.RaiseError(fmt.Sprintf("failed to convert user data to lua table: %s", err.Error()))
+			return 0
+		}
+
+		ft := l.CreateTable(0, 2)
+		ft.RawSetString("referrer", lua.LString(f.Referrer))
+		ft.RawSetString("user", fut)
+
+		userFriendsOfFriends.RawSetInt(i+1, ft)
+	}
+
+	l.Push(userFriendsOfFriends)
+	if friends.Cursor == "" {
+		l.Push(lua.LNil)
+	} else {
+		l.Push(lua.LString(friends.Cursor))
+	}
+
 	return 2
 }
 
@@ -9548,7 +9729,6 @@ func (n *RuntimeLuaNakamaModule) friendsAdd(l *lua.LState) int {
 	}
 
 	return 0
-
 }
 
 // @group friends
@@ -9742,7 +9922,7 @@ func (n *RuntimeLuaNakamaModule) friendsBlock(l *lua.LState) int {
 	allIDs = append(allIDs, userIDs...)
 	allIDs = append(allIDs, fetchIDs...)
 
-	err = BlockFriends(l.Context(), n.logger, n.db, userID, allIDs)
+	err = BlockFriends(l.Context(), n.logger, n.db, n.tracker, userID, allIDs)
 	if err != nil {
 		l.RaiseError(err.Error())
 		return 0
@@ -10105,6 +10285,7 @@ func (n *RuntimeLuaNakamaModule) channelIdBuild(l *lua.LState) int {
 // @param indexName(type=string) Name of the index to list entries from.
 // @param queryString(type=string) Query to filter index entries.
 // @param limit(type=int) Maximum number of results to be returned.
+// @param order(type=[]string, optional=true) The storage object fields to sort the query results by. The prefix '-' before a field name indicates descending order. All specified fields must be indexed and sortable.
 // @param callerId(type=string, optional=true) User ID of the caller, will apply permissions checks of the user. If empty defaults to system user and permission checks are bypassed.
 // @return objects(table) A list of storage objects.
 // @return error(error) An optional error value if an error occurred.
@@ -10116,18 +10297,28 @@ func (n *RuntimeLuaNakamaModule) storageIndexList(l *lua.LState) int {
 		l.ArgError(3, "invalid limit: expects value 1-10000")
 		return 0
 	}
+	orderTable := l.CheckTable(4)
+	order := make([]string, 0, orderTable.Len())
+	orderTable.ForEach(func(k, v lua.LValue) {
+		if v.Type() != lua.LTString {
+			l.ArgError(4, "expects each field to be string")
+			return
+		}
+		order = append(order, v.String())
+	})
+
 	callerID := uuid.Nil
-	callerIDStr := l.OptString(4, "")
+	callerIDStr := l.OptString(5, "")
 	if callerIDStr != "" {
 		cid, err := uuid.FromString(callerIDStr)
 		if err != nil {
-			l.ArgError(4, "expects caller ID to be empty or a valid identifier")
+			l.ArgError(5, "expects caller ID to be empty or a valid identifier")
 			return 0
 		}
 		callerID = cid
 	}
 
-	objectList, err := n.storageIndex.List(l.Context(), callerID, idxName, queryString, limit)
+	objectList, err := n.storageIndex.List(l.Context(), callerID, idxName, queryString, limit, order)
 	if err != nil {
 		l.RaiseError(err.Error())
 		return 0

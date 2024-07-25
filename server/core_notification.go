@@ -20,13 +20,16 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/gob"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/heroiclabs/nakama-common/runtime"
 	"time"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/rtapi"
-	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -70,7 +73,7 @@ func NotificationSend(ctx context.Context, logger *zap.Logger, db *sql.DB, track
 	}
 
 	recipients := make(map[PresenceStream][]*PresenceID, len(notifications))
-	for userID, _ := range notifications {
+	for userID := range notifications {
 		recipients[PresenceStream{Mode: StreamModeNotifications, Subject: userID}] = make([]*PresenceID, 0, 1)
 	}
 	tracker.ListPresenceIDByStreams(recipients)
@@ -97,7 +100,7 @@ func NotificationSend(ctx context.Context, logger *zap.Logger, db *sql.DB, track
 	return nil
 }
 
-func NotificationSendAll(ctx context.Context, logger *zap.Logger, db *sql.DB, tracker Tracker, messageRouter MessageRouter, notification *api.Notification) error {
+func NotificationSendAll(ctx context.Context, logger *zap.Logger, db *sql.DB, gotracker Tracker, messageRouter MessageRouter, notification *api.Notification) error {
 	// Non-persistent notifications don't need to work through all database users, just use currently connected notification streams.
 	if !notification.Persistent {
 		env := &rtapi.Envelope{
@@ -208,7 +211,7 @@ func NotificationList(ctx context.Context, logger *zap.Logger, db *sql.DB, userI
 	cursorQuery := " "
 	if nc != nil && nc.NotificationID != nil {
 		cursorQuery = " AND (user_id, create_time, id) > ($1::UUID, $3::TIMESTAMPTZ, $4::UUID)"
-		params = append(params, &pgtype.Timestamptz{Time: time.Unix(0, nc.CreateTime).UTC(), Status: pgtype.Present}, uuid.FromBytesOrNil(nc.NotificationID))
+		params = append(params, &pgtype.Timestamptz{Time: time.Unix(0, nc.CreateTime).UTC(), Valid: true}, uuid.FromBytesOrNil(nc.NotificationID))
 	}
 
 	rows, err := db.QueryContext(ctx, `
@@ -318,6 +321,89 @@ SELECT
 	if _, err := db.ExecContext(ctx, query, ids, userIds, subjects, contents, codes, senderIds); err != nil {
 		logger.Error("Could not save notifications.", zap.Error(err))
 		return err
+	}
+
+	return nil
+}
+
+func NotificationsGetId(ctx context.Context, logger *zap.Logger, db *sql.DB, userID string, ids ...string) ([]*runtime.Notification, error) {
+	if len(ids) == 0 {
+		return []*runtime.Notification{}, nil
+	}
+
+	for _, id := range ids {
+		if _, err := uuid.FromString(id); err != nil {
+			return nil, errors.New("expects id to be a valid id string")
+		}
+	}
+
+	params := []any{ids}
+	query := "SELECT id, user_id, subject, content, code, sender_id, create_time FROM notification WHERE id = any($1)"
+	if userID != "" {
+		query += " AND user_id = $2"
+		params = append(params, userID)
+	}
+
+	rows, err := db.QueryContext(ctx, query, params...)
+	if err != nil {
+		logger.Error("failed to list notifications by id", zap.Error(err))
+		return nil, fmt.Errorf("failed to list notifications by id: %s", err.Error())
+	}
+
+	defer rows.Close()
+
+	notifications := make([]*runtime.Notification, 0, len(ids))
+	for rows.Next() {
+		no := &runtime.Notification{Persistent: true, CreateTime: &timestamppb.Timestamp{}}
+		var createTime pgtype.Timestamptz
+		var content string
+		if err := rows.Scan(&no.Id, &no.UserID, &no.Subject, &content, &no.Code, &no.Sender, &createTime); err != nil {
+			_ = rows.Close()
+			logger.Error("Failed to scan notification from database.", zap.Error(err))
+			return nil, err
+		}
+		no.CreateTime.Seconds = createTime.Time.Unix()
+
+		var contentMap map[string]any
+		if err = json.Unmarshal([]byte(content), &contentMap); err != nil {
+			logger.Error("Failed to unmarshal notification content", zap.Error(err))
+			return nil, err
+		}
+		no.Content = contentMap
+
+		if no.Sender == uuid.Nil.String() {
+			no.Sender = ""
+		}
+		notifications = append(notifications, no)
+	}
+
+	return notifications, nil
+}
+
+func NotificationsDeleteId(ctx context.Context, logger *zap.Logger, db *sql.DB, userID string, ids ...string) error {
+	if len(ids) == 0 {
+		// NOOP
+		return nil
+	}
+
+	for _, id := range ids {
+		if _, err := uuid.FromString(id); err != nil {
+			return errors.New("expects id to be a valid uuid")
+		}
+	}
+
+	if userID != "" {
+		uid, err := uuid.FromString(userID)
+		if err != nil {
+			return errors.New("expects id to be a valid uuid")
+		}
+
+		return NotificationDelete(ctx, logger, db, uid, ids)
+	}
+
+	if _, err := db.QueryContext(ctx, "DELETE FROM notification WHERE id = any($1)", ids); err != nil {
+		logger.Error("failed to delete notifications by id", zap.Error(err))
+		return fmt.Errorf("failed to delete notifications: %s", err.Error())
 	}
 
 	return nil

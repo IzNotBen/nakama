@@ -1,3 +1,17 @@
+// Copyright 2024 The Nakama Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package server
 
 import (
@@ -60,12 +74,12 @@ func TestLocalStorageIndex_Write(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	if err := storageIdx.CreateIndex(ctx, indexName1, collection1, key, []string{"one", "two"}, maxEntries1, false); err != nil {
+	if err := storageIdx.CreateIndex(ctx, indexName1, collection1, key, []string{"one", "two"}, []string{}, maxEntries1, false); err != nil {
 		t.Fatal(err.Error())
 	}
 
 	// Matches all keys
-	if err := storageIdx.CreateIndex(ctx, indexName2, collection1, "", []string{"three"}, maxEntries2, false); err != nil {
+	if err := storageIdx.CreateIndex(ctx, indexName2, collection1, "", []string{"three"}, []string{}, maxEntries2, false); err != nil {
 		t.Fatal(err.Error())
 	}
 
@@ -125,13 +139,13 @@ func TestLocalStorageIndex_Write(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 
-		entries, err := storageIdx.List(ctx, uuid.Nil, indexName1, "", maxEntries1) // Match all
+		entries, err := storageIdx.List(ctx, uuid.Nil, indexName1, "", maxEntries1, []string{}) // Match all
 		if err != nil {
 			t.Fatal(err.Error())
 		}
 		assert.Len(t, entries.Objects, 2, "indexed results length was not 2")
 
-		entries, err = storageIdx.List(ctx, uuid.Nil, indexName2, "", maxEntries1) // Match all
+		entries, err = storageIdx.List(ctx, uuid.Nil, indexName2, "", maxEntries1, []string{}) // Match all
 		if err != nil {
 			t.Fatal(err.Error())
 		}
@@ -172,7 +186,7 @@ func TestLocalStorageIndex_Write(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 
-		entries, err := storageIdx.List(ctx, uuid.Nil, indexName1, "+value.three:3", maxEntries1)
+		entries, err := storageIdx.List(ctx, uuid.Nil, indexName1, "+value.three:3", maxEntries1, []string{})
 		if err != nil {
 			t.Fatal(err.Error())
 		}
@@ -275,7 +289,7 @@ func TestLocalStorageIndex_Write(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 
-		entries, err := storageIdx.List(ctx, uuid.Nil, indexName2, "", maxEntries2)
+		entries, err := storageIdx.List(ctx, uuid.Nil, indexName2, "", maxEntries2, []string{})
 		if err != nil {
 			t.Fatal(err.Error())
 		}
@@ -336,7 +350,7 @@ func TestLocalStorageIndex_List(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 
-		if err := storageIdx.CreateIndex(ctx, indexName, collection, key, []string{"one", "two", "three"}, maxEntries, true); err != nil {
+		if err := storageIdx.CreateIndex(ctx, indexName, collection, key, []string{"one", "two", "three"}, []string{}, maxEntries, true); err != nil {
 			t.Fatal(err.Error())
 		}
 
@@ -371,7 +385,7 @@ func TestLocalStorageIndex_List(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 
-		entries, err := storageIdx.List(ctx, uuid.Nil, indexName, "value.one:1 value.three:3", 10)
+		entries, err := storageIdx.List(ctx, uuid.Nil, indexName, "value.one:1 value.three:3", 10, []string{})
 		if err != nil {
 			t.Fatal(err.Error())
 		}
@@ -412,15 +426,18 @@ func TestLocalStorageIndex_List(t *testing.T) {
 		maxEntries := 10
 
 		valueOneBytes, _ := json.Marshal(map[string]any{
-			"one": 1,
+			"one":  1,
+			"sort": 1,
 		})
 		valueOne := string(valueOneBytes)
 		valueTwoBytes, _ := json.Marshal(map[string]any{
-			"two": 2,
+			"two":  2,
+			"sort": 2,
 		})
 		valueTwo := string(valueTwoBytes)
 		valueThreeBytes, _ := json.Marshal(map[string]any{
 			"three": 3,
+			"sort":  3,
 		})
 		valueThree := string(valueThreeBytes)
 
@@ -429,7 +446,7 @@ func TestLocalStorageIndex_List(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 
-		if err := storageIdx.CreateIndex(ctx, indexName, collection, key, []string{"one", "two", "three"}, maxEntries, true); err != nil {
+		if err := storageIdx.CreateIndex(ctx, indexName, collection, key, []string{"one", "two", "three", "sort"}, []string{"sort"}, maxEntries, true); err != nil {
 			t.Fatal(err.Error())
 		}
 
@@ -464,7 +481,7 @@ func TestLocalStorageIndex_List(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 
-		entries, err := storageIdx.List(ctx, uuid.Nil, indexName, "value.one:1 value.three:3", 10)
+		entries, err := storageIdx.List(ctx, uuid.Nil, indexName, "value.one:1 value.three:3", 10, []string{})
 		if err != nil {
 			t.Fatal(err.Error())
 		}
@@ -472,6 +489,22 @@ func TestLocalStorageIndex_List(t *testing.T) {
 		assert.Len(t, entries.Objects, 2, "indexed results did not match query params")
 		assert.Equal(t, valueOne, entries.Objects[0].Value, "expected value retrieved from db did not match")
 		assert.Equal(t, valueThree, entries.Objects[1].Value, "expected value retrieved from db did not match")
+
+		sortEntries, err := storageIdx.List(ctx, uuid.Nil, indexName, "value.one:1 value.three:3", 10, []string{"value.sort"})
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+		assert.Len(t, sortEntries.Objects, 2, "indexed results did not match query params")
+		assert.Equal(t, valueOne, sortEntries.Objects[0].Value, "expected value retrieved from db did not match")
+		assert.Equal(t, valueThree, sortEntries.Objects[1].Value, "expected value retrieved from db did not match")
+
+		sortDescEntries, err := storageIdx.List(ctx, uuid.Nil, indexName, "value.one:1 value.three:3", 10, []string{"-value.sort"})
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+		assert.Len(t, sortDescEntries.Objects, 2, "indexed results did not match query params")
+		assert.Equal(t, valueOne, sortDescEntries.Objects[1].Value, "expected value retrieved from db did not match")
+		assert.Equal(t, valueThree, sortDescEntries.Objects[0].Value, "expected value retrieved from db did not match")
 
 		delOps := make(StorageOpDeletes, 0, len(writeOps))
 		for _, op := range writeOps {
@@ -513,7 +546,7 @@ func TestLocalStorageIndex_Delete(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	if err := storageIdx.CreateIndex(ctx, indexName, collection, "", []string{"one"}, maxEntries, false); err != nil {
+	if err := storageIdx.CreateIndex(ctx, indexName, collection, "", []string{"one"}, []string{}, maxEntries, false); err != nil {
 		t.Fatal(err.Error())
 	}
 
@@ -540,7 +573,7 @@ func TestLocalStorageIndex_Delete(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	entries, err := storageIdx.List(ctx, uuid.Nil, indexName, "", 10)
+	entries, err := storageIdx.List(ctx, uuid.Nil, indexName, "", 10, []string{})
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -557,7 +590,7 @@ func TestLocalStorageIndex_Delete(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	entries, err = storageIdx.List(ctx, uuid.Nil, indexName, "", 10)
+	entries, err = storageIdx.List(ctx, uuid.Nil, indexName, "", 10, []string{})
 	if err != nil {
 		t.Fatal(err.Error())
 	}
