@@ -29,7 +29,7 @@ func (m *OtherUserProfileSuccess) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.Stream(&m.EvrID) },
 		func() error {
-			return s.StreamCompressedBytes(m.ServerProfileJSON, true, ZstdCompression)
+			return s.StreamCompressedBytes(&m.ServerProfileJSON, true, ZstdCompression)
 		},
 	})
 }

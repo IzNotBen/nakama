@@ -14,7 +14,7 @@ type OtherUserProfileRequest struct {
 func (m *OtherUserProfileRequest) Stream(s *Stream) error {
 	return RunErrorFunctions([]func() error{
 		func() error { return s.Stream(&m.EvrID) },
-		func() error { return s.StreamCompressedBytes(m.Data, true, NoCompression) },
+		func() error { return s.StreamCompressedBytes(&m.Data, true, NoCompression) },
 	})
 }
 
