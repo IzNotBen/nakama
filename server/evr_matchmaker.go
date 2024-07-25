@@ -1349,11 +1349,11 @@ func (p *EvrPipeline) GetGuildPriorityList(ctx context.Context, userID uuid.UUID
 				s := strings.Trim(guildId, " ")
 				if s != "" {
 					// Get the groupId for the guild
-					groupIDstr, found := p.discordRegistry.Get(s)
-					if !found {
+					groupIDStr, err := GetGroupIDByGuildID(ctx, p.db, s)
+					if err != nil {
 						continue
 					}
-					groupID := uuid.FromStringOrNil(groupIDstr)
+					groupID := uuid.FromStringOrNil(groupIDStr)
 					if groupID != uuid.Nil && lo.Contains(groupIDs, groupID) {
 						guildPriority = append(guildPriority, groupID)
 					}
