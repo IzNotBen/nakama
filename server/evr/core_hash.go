@@ -45,8 +45,6 @@ func generateHashSeed() [0x100]uint64 {
 	return seeds
 }
 
-var symbolSeed [0x100]uint64 = generateHashSeed()
-
 var SymbolCache = map[Symbol]SymbolToken{
 	0x8d5ad3c4f2166c6c: "SNSFindServerRegionInfo",            // Custom?
 	0xb57a31cdd0f6fedf: "SNSLobbyRegistrationSuccess",        // Custom
