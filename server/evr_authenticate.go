@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,9 +21,13 @@ import (
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
+	"github.com/jackc/pgtype"
 	"github.com/samber/lo"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -668,7 +673,6 @@ type AccountUserMetadata struct {
 	DisplayNameOverride string            `json:"display_name_override"` // The display name override
 	GlobalBanReason     string            `json:"global_ban_reason"`     // The global ban reason
 	ActiveGroupID       string            `json:"active_group_id"`       // The active group ID
-	Cosmetics           AccountCosmetics  `json:"cosmetics"`             // The loadout
 	GuildDisplayNames   map[string]string `json:"guild_display_names"`   // The display names for guilds
 	Verbose             bool              `json:"verbose"`               // The verbose flag
 }
@@ -953,4 +957,44 @@ func sanitizeDisplayName(displayName string) string {
 	// Trim spaces from both ends
 	displayName = strings.TrimSpace(displayName)
 	return displayName
+}
+
+// Authenticate with the headset Device ID and (optionally) password.
+func AuthenticateEVRDevice(ctx context.Context, logger *zap.Logger, db *sql.DB, deviceAuth DeviceAuth, password, emailDomain string, create bool) (userID, username, customID string, err error) {
+	// Look for an existing account using the deviceAuth token.
+	query := `SELECT u.id, username, custom_id, password, disable_time FROM users u, user_device d WHERE d.user_id = u.id AND (d.id = $1 OR d.id = $2)`
+
+	var dbUserID string
+	var dbUsername string
+	var dbCustomID string
+	var dbPassword []byte
+	var dbDisableTime pgtype.Timestamptz
+	err = db.QueryRowContext(ctx, query, deviceAuth.Token(), deviceAuth.WildcardToken()).Scan(&dbUserID, &dbUsername, &dbCustomID, &dbPassword, &dbDisableTime)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Account not found and creation is never allowed for this type.
+			return "", "", "", status.Error(codes.NotFound, "User account not found.")
+		}
+		logger.Error("Error looking up user by deviceID.", zap.Error(err), zap.Any("device_id", deviceAuth))
+		return "", "", "", status.Error(codes.Internal, "Error finding user account.")
+	}
+
+	// Check if it's disabled.
+	if dbDisableTime.Status == pgtype.Present && dbDisableTime.Time.Unix() != 0 {
+		logger.Info("User account is disabled.", zap.Any("device_id", deviceAuth))
+		return dbUserID, dbUsername, dbCustomID, status.Error(codes.PermissionDenied, "User account banned.")
+	}
+	isSet := len(dbPassword) != 0
+	// Check if the account has a password.
+	if isSet && bcrypt.CompareHashAndPassword(dbPassword, []byte(password)) != nil {
+		err = status.Error(codes.Unauthenticated, "Invalid credentials.")
+	} else if !create {
+		// No password set, and we're not setting it.
+		err = status.Error(codes.Unauthenticated, "Invalid credentials.")
+	} else if LinkEmail(ctx, logger, db, uuid.FromStringOrNil(dbUserID), fmt.Sprintf("%s@%s", dbUserID, emailDomain), password) != nil {
+		logger.Error("Error setting password for account.", zap.Error(err))
+		err = status.Error(codes.Internal, "Error setting password for account.")
+	}
+
+	return dbUserID, dbUsername, dbCustomID, err
 }
