@@ -113,43 +113,42 @@ func (p *EvrPipeline) loginRequest(ctx context.Context, logger *zap.Logger, sess
 }
 
 // processLogin handles the authentication of the login connection.
-func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrID evr.EvrID, deviceId *DeviceAuth, loginProfile evr.LoginProfile) (settings *evr.GameSettings, err error) {
-
-	var account *api.Account
-	if session.userID == uuid.Nil {
-		if account, err = p.authenticateAccount(ctx, logger, session, deviceId, loginProfile); err != nil {
-			return settings, err
-		}
-	} else {
-		if account, err = GetAccount(ctx, session.logger, session.pipeline.db, session.statusRegistry, session.userID); err != nil {
-			return settings, status.Error(codes.Internal, fmt.Sprintf("failed to get account: %s", err))
-		}
-	}
-
-	if account == nil {
-		return settings, fmt.Errorf("account not found")
-	}
-	user := account.GetUser()
-	userID := user.GetId()
-	uid := uuid.FromStringOrNil(user.GetId())
-
-	updateCtx, cancel := context.WithTimeout(ctx, time.Second*3)
-	go func() {
-		defer cancel()
-		err = p.discordRegistry.UpdateAllGuildGroupsForUser(ctx, NewRuntimeGoLogger(logger), uid)
-		if err != nil {
-			logger.Warn("Failed to update guild groups", zap.Error(err))
-		}
+func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, session *sessionWS, evrID evr.EvrID, deviceID *DeviceAuth, loginProfile evr.LoginProfile) (settings *evr.GameSettings, err error) {
+	startTime := time.Now()
+	defer func() {
+		p.metrics.CustomTimer("processLoginFn", nil, time.Since(startTime))
 	}()
+	// Check for a password in the context
+	userPassword := ctx.Value(ctxAuthPasswordKey{}).(string)
+	userID := ""
+	if session.userID.IsNil() || userPassword != "" {
+		var customID string
+		// Authenticate the account, and potentially set the password.
+		userID, _, customID, err = AuthenticateEVRDevice(ctx, logger, p.db, *deviceID, userPassword, p.placeholderEmail, userPassword != "")
 
-	// Wait for the context to be done, or the timeout
-	<-updateCtx.Done()
+		if err != nil {
+			if status.Code(err) != codes.NotFound || customID == "" {
+				// Account requires discord linking.
+				linkTicket, err := p.linkTicket(session, logger, deviceID, &loginProfile)
+				if err != nil {
+					return settings, status.Error(codes.Internal, fmt.Errorf("error creating link ticket: %w", err).Error())
+				}
+				return settings, fmt.Errorf("\nEnter this code:\n  \n>>> %s <<<\nusing '/link-headset %s' in the Echo VR Lounge Discord.", linkTicket.Code, linkTicket.Code)
+			}
+		}
 
-	// Get the user's metadata
-	var metadata AccountUserMetadata
-	if err := json.Unmarshal([]byte(account.User.GetMetadata()), &metadata); err != nil {
-		return settings, fmt.Errorf("failed to unmarshal account metadata: %w", err)
 	}
+	if userID == "" {
+		return settings, status.Error(codes.Internal, "failed to authenticate account")
+	}
+
+	account, err := GetAccount(ctx, session.logger, session.pipeline.db, session.statusRegistry, uuid.FromStringOrNil(userID))
+	if err != nil {
+		return settings, status.Error(codes.Internal, fmt.Sprintf("failed to get account: %s", err))
+	}
+
+	user := account.GetUser()
+	uid := uuid.FromStringOrNil(user.GetId())
 
 	// Check that this EVR-ID is only used by this userID
 	otherLogins, err := p.checkEvrIDOwner(ctx, evrID)
@@ -164,12 +163,14 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		}
 	}
 
-	// If user ID is not empty, write out the login payload to storage.
-	if userID != "" {
-		if err := writeAuditObjects(ctx, session, userID, evrID.String(), loginProfile); err != nil {
-			session.logger.Warn("Failed to write audit objects", zap.Error(err))
+	go func() {
+		// If user ID is not empty, write out the login payload to storage.
+		if userID != "" {
+			if err := writeAuditObjects(ctx, session, userID, evrID.String(), loginProfile); err != nil {
+				session.logger.Warn("Failed to write audit objects", zap.Error(err))
+			}
 		}
-	}
+	}()
 
 	flags := 0
 	if loginProfile.SystemInfo.HeadsetType == "No VR" {
@@ -184,15 +185,14 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 		}
 	}
 
-	config, err := LoadMatchmakingSettings(ctx, p.runtimeModule, userId)
-	if err != nil {
-		logger.Warn("Failed to load matchmaking config", zap.Error(err))
+	// Get the user's metadata
+	var metadata AccountUserMetadata
+	if err := json.Unmarshal([]byte(account.User.GetMetadata()), &metadata); err != nil {
+		return settings, fmt.Errorf("failed to unmarshal account metadata: %w", err)
 	}
-	verbose := config.Verbose
-
+	verbose := metadata.Verbose
 	// Get the GroupID from the user's metadata
 	groupID := metadata.GetActiveGroupID()
-	// Validate that the user is in the group
 
 	// Get a list of the user's guild memberships and set to the largest one
 	memberships, err := p.discordRegistry.GetGuildGroupMemberships(ctx, uid, nil)
@@ -205,41 +205,54 @@ func (p *EvrPipeline) processLogin(ctx context.Context, logger *zap.Logger, sess
 
 	// Sort the groups by the edgecount
 	sort.SliceStable(memberships, func(i, j int) bool {
+		if memberships[i].isSuspended || !memberships[i].isMember {
+			return false
+		}
 		if memberships[i].GuildGroup.ID() == groupID {
 			return true
 		}
 		return memberships[i].GuildGroup.Size() > memberships[j].GuildGroup.Size()
 	})
 
+	if memberships[0].isSuspended || !memberships[0].isMember {
+		return settings, fmt.Errorf("user is not in any active guild groups")
+	}
+
 	groupID = memberships[0].GuildGroup.ID()
 
-	verbose := metadata.Verbose
 	// Initialize the full session
-	if err := session.LoginSession(userID, user.GetUsername(), evrID, deviceId, memberships, flags, verbose); err != nil {
+	if err := session.LoginSession(userID, user.GetUsername(), evrID, deviceID, memberships, flags, verbose); err != nil {
 		return settings, fmt.Errorf("failed to login: %w", err)
 	}
-	ctx = session.Context()
 
-	// Load the user's profile
-	profile, err := p.profileRegistry.GetSessionProfile(ctx, session, loginProfile, evrID)
-	if err != nil {
-		session.logger.Error("failed to load game profiles", zap.Error(err))
-		return evr.NewDefaultGameSettings(), fmt.Errorf("failed to load game profiles")
-	}
+	go func() {
+		startTime := time.Now()
 
-	displayName, err := SetDisplayNameByChannelBySession(ctx, p.runtimeModule, logger, p.discordRegistry, session, groupID.String())
-	if err != nil {
-		return settings, fmt.Errorf("failed to set display name: %w", err)
-	}
-	// Get the display name currently set on the account.
-	profile.SetChannel(evr.GUID(groupID))
-	profile.UpdateDisplayName(displayName)
-	p.profileRegistry.Store(session.userID, profile)
+		ctx, cancel := context.WithTimeout(session.Context(), time.Second*3)
+		defer cancel()
+		err = p.discordRegistry.UpdateAllGuildGroupsForUser(ctx, NewRuntimeGoLogger(logger), p.db, uuid.FromStringOrNil(userID))
+		if err != nil {
+			logger.Warn("Failed to update guild groups", zap.Error(err))
+		}
+		displayName, err := SetDisplayNameByChannelBySession(ctx, p.runtimeModule, logger, p.discordRegistry, session, groupID.String())
+		if err != nil {
+			logger.Warn("Failed to set display name", zap.Error(err))
+		}
+		// Load the user's profile
+		profile, err := p.profileRegistry.GetSessionProfile(ctx, session, loginProfile, evrID)
+		if err != nil {
+			session.logger.Error("failed to load game profiles", zap.Error(err))
+			return
+		}
 
-	// TODO Add the settings to the user profile
-	settings = evr.NewDefaultGameSettings()
-	return settings, nil
+		// Get the display name currently set on the account.
+		profile.SetChannel(evr.GUID(groupID))
+		profile.UpdateDisplayName(displayName)
+		p.profileRegistry.Store(session.userID, profile)
+		p.metrics.CustomTimer("syncProfileFn", nil, time.Since(startTime))
+	}()
 
+	return evr.NewDefaultGameSettings(), nil
 }
 
 type EvrIDHistory struct {
@@ -271,64 +284,6 @@ func (p *EvrPipeline) checkEvrIDOwner(ctx context.Context, evrID evr.EvrID) ([]E
 	})
 
 	return history, nil
-}
-func (p *EvrPipeline) authenticateAccount(ctx context.Context, logger *zap.Logger, session *sessionWS, deviceId *DeviceAuth, payload evr.LoginProfile) (*api.Account, error) {
-	var err error
-	var userId string
-	var account *api.Account
-
-	// Check for a password in the context
-	userPassword := ctx.Value(ctxAuthPasswordKey{}).(string)
-
-	// Authenticate with the device ID.
-	userId, _, _, err = AuthenticateDevice(ctx, session.logger, session.pipeline.db, deviceId.Token(), "", false)
-	if err != nil && status.Code(err) == codes.NotFound {
-		// Try to authenticate the device with a wildcard address.
-		userId, _, _, err = AuthenticateDevice(ctx, session.logger, session.pipeline.db, deviceId.WildcardToken(), "", false)
-	}
-	if err != nil && status.Code(err) != codes.NotFound {
-		// Possibly banned or other error.
-		return account, err
-	} else if err == nil {
-
-		// The account was found.
-		account, err = GetAccount(ctx, session.logger, session.pipeline.db, session.statusRegistry, uuid.FromStringOrNil(userId))
-		if err != nil {
-			return account, status.Error(codes.Internal, fmt.Sprintf("failed to get account: %s", err))
-		}
-
-		if account.GetCustomId() == "" {
-
-			// Account requires discord linking.
-			userId = ""
-
-		} else if account.GetEmail() != "" {
-
-			// The account has a password, authenticate the password.
-			_, _, _, err := AuthenticateEmail(ctx, session.logger, session.pipeline.db, account.Email, userPassword, "", false)
-			return account, err
-
-		} else if userPassword != "" {
-
-			// The user provided a password and the account has no password.
-			err = LinkEmail(ctx, session.logger, session.pipeline.db, uuid.FromStringOrNil(userId), account.User.Id+"@"+p.placeholderEmail, userPassword)
-			if err != nil {
-				return account, status.Error(codes.Internal, fmt.Errorf("error linking email: %w", err).Error())
-			}
-
-			return account, nil
-		} else if status.Code(err) != codes.NotFound {
-			// Possibly banned or other error.
-			return account, err
-		}
-	}
-
-	// Account requires discord linking.
-	linkTicket, err := p.linkTicket(session, logger, deviceId, &payload)
-	if err != nil {
-		return account, status.Error(codes.Internal, fmt.Errorf("error creating link ticket: %w", err).Error())
-	}
-	return account, fmt.Errorf("\nEnter this code:\n  \n>>> %s <<<\nusing '/link-headset %s' in the Echo VR Lounge Discord.", linkTicket.Code, linkTicket.Code)
 }
 
 func writeAuditObjects(ctx context.Context, session *sessionWS, userId string, evrIDToken string, payload evr.LoginProfile) error {
