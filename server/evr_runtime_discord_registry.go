@@ -443,21 +443,10 @@ func (m *GuildGroupMembership) ID() uuid.UUID {
 
 // GetGuildGroupMemberships looks up the guild groups by the user ID
 func (r *LocalDiscordRegistry) GetGuildGroupMemberships(ctx context.Context, userID uuid.UUID, groupIDs []uuid.UUID) ([]GuildGroupMembership, error) {
-	// Check if userId is provided
-	if userID == uuid.Nil {
-		return nil, fmt.Errorf("userId is required")
-	}
 
-	account, err := r.nk.AccountGetId(ctx, userID.String())
-	if err != nil {
-		return nil, fmt.Errorf("error getting account: %w", err)
-	}
-	md := &AccountUserMetadata{}
-	if err := json.Unmarshal([]byte(account.GetUser().GetMetadata()), md); err != nil {
-		return nil, fmt.Errorf("error unmarshalling group metadata: %w", err)
-	}
-	if md.GuildDisplayNames == nil {
-		md.GuildDisplayNames = make(map[string]string)
+	md, shouldReturn, returnValue, returnValue1 := GetAccountMetadata(ctx, r.nk, userID.String())
+	if shouldReturn {
+		return returnValue, returnValue1
 	}
 
 	userIDStr := userID.String()
