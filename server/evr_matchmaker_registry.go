@@ -976,7 +976,7 @@ func (m *MatchmakingSession) GetPingCandidates(endpoints ...evr.Endpoint) (candi
 
 	return candidates
 }
-func JoinPartyGroup(session *sessionWS, groupID string, partyID uuid.UUID) (*PartyGroup, error) {
+func JoinPartyGroup(session *sessionWS, groupStr string, partyID uuid.UUID) (*PartyGroup, error) {
 
 	partyRegistry := session.pipeline.partyRegistry.(*LocalPartyRegistry)
 	node := session.pipeline.node
@@ -1056,9 +1056,11 @@ func JoinPartyGroup(session *sessionWS, groupID string, partyID uuid.UUID) (*Par
 		return nil, status.Errorf(codes.Internal, "Failed to track party join")
 	}
 	pg := &PartyGroup{
-		name: groupID,
+		name: groupStr,
 		ph:   ph,
+		self: presence,
 	}
+
 	return pg, nil
 }
 

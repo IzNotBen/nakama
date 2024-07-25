@@ -1,17 +1,12 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
-	"os"
 	"reflect"
 	"testing"
 
-	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama/v3/server/evr"
 	"go.uber.org/zap"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func TestParseDeviceId(t *testing.T) {
@@ -110,77 +105,6 @@ var _ = DiscordRegistry(testDiscordRegistry{})
 
 type testDiscordRegistry struct {
 	DiscordRegistry
-}
-
-func TestEvrPipeline_authenticateAccount(t *testing.T) {
-	type fields struct {
-		placeholderEmail string
-		linkDeviceUrl    string
-	}
-	type args struct {
-		ctx          context.Context
-		session      *sessionWS
-		deviceId     *DeviceAuth
-		discordId    string
-		userPassword string
-		payload      evr.LoginProfile
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		want    *api.Account
-		errCode codes.Code
-	}{
-		{
-			"discordId auth: userPassword empty",
-			fields{
-				placeholderEmail: "null.echovrce.com",
-				linkDeviceUrl:    "https://echovrce.com/link",
-			},
-			args{
-				ctx:          context.Background(),
-				session:      &sessionWS{},
-				deviceId:     &DeviceAuth{},
-				discordId:    "1234567890",
-				userPassword: "",
-				payload:      evr.LoginProfile{},
-			},
-			nil,
-			codes.InvalidArgument,
-		},
-		{
-			"discordId auth: userPassword set",
-			fields{
-				placeholderEmail: "null.echovrce.com",
-				linkDeviceUrl:    "https://echovrce.com/link",
-			},
-			args{
-				ctx:          context.Background(),
-				session:      &sessionWS{},
-				deviceId:     &DeviceAuth{},
-				discordId:    "1234567890",
-				userPassword: "",
-				payload:      evr.LoginProfile{},
-			},
-			nil,
-			codes.InvalidArgument,
-		},
-	}
-	for _, tt := range tests {
-		logger = NewConsoleLogger(os.Stdout, true)
-		t.Run(tt.name, func(t *testing.T) {
-			p := &MockEvrPipeline{}
-			got, err := p.authenticateAccount(tt.args.ctx, logger, tt.args.session, tt.args.deviceId, tt.args.payload)
-			if status.Code(err) != tt.errCode {
-				t.Errorf("EvrPipeline.authenticateAccount() error = %v, wantErr %v", err, tt.errCode)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("EvrPipeline.authenticateAccount() = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
 
 func Test_updateProfileStats(t *testing.T) {

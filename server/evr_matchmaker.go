@@ -14,6 +14,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gofrs/uuid/v5"
 	"github.com/heroiclabs/nakama-common/api"
+	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
 	"github.com/samber/lo"
@@ -487,7 +488,7 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 	}
 
 	logger.Debug("Joining match", zap.String("mid", matchID.UUID().String()))
-	label, mp, _, err = EVRMatchJoinAttempt(ctx, logger, matchID, p.sessionRegistry, p.matchRegistry, p.tracker, *mp)
+	label, mp, _, err = EVRMatchJoinAttempt(ctx, logger, matchID, p.sessionRegistry, p.matchRegistry, p.tracker, *mp, nil)
 	if err != nil {
 		if err == ErrDuplicateJoin {
 			logger.Warn("Player already in match. Ignoring join attempt.", zap.String("mid", matchID.UUID().String()), zap.Error(err))
@@ -525,10 +526,10 @@ func (p *EvrPipeline) JoinEvrMatch(ctx context.Context, logger *zap.Logger, sess
 
 var ErrDuplicateJoin = errors.New(JoinRejectReasonDuplicateJoin)
 
-func EVRMatchJoinAttempt(ctx context.Context, logger *zap.Logger, matchID MatchID, sessionRegistry SessionRegistry, matchRegistry MatchRegistry, tracker Tracker, presence EntrantPresence) (*EvrMatchState, *EntrantPresence, []*MatchPresence, error) {
+func EVRMatchJoinAttempt(ctx context.Context, logger *zap.Logger, matchID MatchID, sessionRegistry SessionRegistry, matchRegistry MatchRegistry, tracker Tracker, presence EntrantPresence, partyMembers []rtapi.UserPresence) (*EvrMatchState, *EntrantPresence, []*MatchPresence, error) {
 
 	matchIDStr := matchID.String()
-	metadata := JoinMetadata{Presence: presence}.MarshalMap()
+	metadata := JoinMetadata{Presence: presence, PartyPresences: partyMembers}.MarshalMap()
 
 	found, allowed, isNew, reason, labelStr, presences := matchRegistry.JoinAttempt(ctx, matchID.UUID(), matchID.Node(), presence.UserID, presence.SessionID, presence.Username, presence.SessionExpiry, nil, presence.ClientIP, presence.ClientPort, matchID.Node(), metadata)
 	if !found {

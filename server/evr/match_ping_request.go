@@ -1,7 +1,6 @@
 package evr
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -101,22 +100,15 @@ func FromEndpointID(id string) Endpoint {
 	}
 }
 
-// MarshalJSON marshals the endpoint to a string of "internalIP:externalIP:port"
-func (e Endpoint) MarshalJSON() ([]byte, error) {
+func (e Endpoint) MarshalText() ([]byte, error) {
 	if e.InternalIP == nil || e.ExternalIP == nil || e.Port == 0 {
-		return json.Marshal("")
+		return []byte(""), nil
 	}
-	s := fmt.Sprintf("%s:%s:%d", e.InternalIP.String(), e.ExternalIP.String(), e.Port)
-	return json.Marshal(s)
+	return []byte(e.String()), nil
 }
 
-// UnmarshalJSON unmarshals the endpoint from a string of "internalIP:externalIP:port"
-func (e *Endpoint) UnmarshalJSON(data []byte) error {
-
-	s := ""
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
+func (e *Endpoint) UnmarshalText(data []byte) error {
+	s := string(data)
 	if len(s) == 0 {
 		return nil
 	}

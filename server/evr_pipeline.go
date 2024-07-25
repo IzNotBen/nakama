@@ -226,8 +226,14 @@ func (p *EvrPipeline) ProcessRequestEVR(logger *zap.Logger, session *sessionWS, 
 
 	requireAuthed := true
 
-	if _, ok := in.(*evr.LobbyFindSessionRequest); ok {
-		return p.pipelineNG.ProcessRequest(logger, EVRSession(session), in)
+	verbose, ok := session.Context().Value(ctxVerboseKey{}).(bool)
+	if !ok {
+		verbose = false
+	}
+	if verbose {
+		if _, ok := in.(*evr.LobbyFindSessionRequest); ok {
+			return p.pipelineNG.ProcessRequest(logger, EVRSession(session), in)
+		}
 	}
 
 	switch in.(type) {

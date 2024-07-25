@@ -644,7 +644,7 @@ func TestEvrMatch_MatchJoinAttempt(t *testing.T) {
 					return state
 				}(),
 				presence: presences[0],
-				metadata: JoinMetadata{*presences[0]}.MarshalMap(),
+				metadata: JoinMetadata{*presences[0], nil}.MarshalMap(),
 			},
 			want: func() *EvrMatchState {
 				state, _, _, err := NewEvrMatchState(evr.Endpoint{}, &MatchBroadcaster{})

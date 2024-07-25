@@ -72,7 +72,7 @@ func TestEndpoint_MarshalJSON(t *testing.T) {
 
 	expectedResult := fmt.Sprintf("%s:%s:%d", internalAddress.String(), externalAddress.String(), port)
 
-	resultJson, err := endpoint.MarshalJSON()
+	resultJson, err := json.Marshal(endpoint)
 	if err != nil {
 		t.Fatalf("error in MarshalJSON: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestEndpoint_UnmarshalJSON(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var endpoint Endpoint
-			err := endpoint.UnmarshalJSON(tc.jsonData)
+			err := json.Unmarshal(tc.jsonData, &endpoint)
 			if err != tc.expectedError {
 				t.Errorf("expected error: %v, got: %v", tc.expectedError, err)
 			}

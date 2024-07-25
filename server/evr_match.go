@@ -16,6 +16,7 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/heroiclabs/nakama-common/api"
+	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/heroiclabs/nakama/v3/server/evr"
 	"github.com/ipinfo/go/v2/ipinfo"
@@ -168,7 +169,8 @@ func (p EntrantPresence) IsSocial() bool {
 }
 
 type JoinMetadata struct {
-	Presence EntrantPresence
+	Presence       EntrantPresence
+	PartyPresences []rtapi.UserPresence
 }
 
 func NewJoinMetadata(p EntrantPresence) *JoinMetadata {
@@ -192,6 +194,12 @@ func (m *JoinMetadata) UnmarshalMap(md map[string]string) error {
 		return err
 	}
 	return nil
+}
+
+type SlotReservation struct {
+	PartyID   string
+	SessionID string
+	Expiry    time.Time
 }
 
 type EvrMatchMeta struct {
@@ -253,6 +261,7 @@ type EvrMatchState struct {
 	TeamIndex   TeamIndex `json:"team,omitempty"`         // What team index a player prefers (Used by Matching only)
 
 	Players        []PlayerInfo                `json:"players,omitempty"`         // The displayNames of the players (by team name) in the match.
+	Reservations   map[string]SlotReservation  `json:"reservations",omitempty`    // map[sessionID]Reservation
 	TeamAlignments map[string]int              `json:"team_alignments,omitempty"` // map[userID]TeamIndex
 	presences      map[string]*EntrantPresence // [sessionId]EvrMatchPresence
 	broadcaster    runtime.Presence            // The broadcaster's presence
@@ -407,6 +416,7 @@ func NewEvrMatchState(endpoint evr.Endpoint, config *MatchBroadcaster) (state *E
 		Players:          make([]PlayerInfo, 0, MatchMaxSize),
 		presences:        make(map[string]*EntrantPresence, MatchMaxSize),
 		TeamAlignments:   make(map[string]int, MatchMaxSize),
+		Reservations:     make(map[string]SlotReservation),
 
 		emptyTicks: 0,
 		tickRate:   tickRate,
@@ -501,7 +511,7 @@ func (m *EvrMatch) MatchJoinAttempt(ctx context.Context, logger runtime.Logger, 
 		return state, false, fmt.Sprintf("failed to unmarshal metadata: %v", err)
 	}
 
-	mp, reason := m.playerJoinAttempt(state, md.Presence)
+	mp, reason := m.playerJoinAttempt(state, md.Presence, md.PartyPresences)
 	if reason != "" {
 		return state, false, reason
 	}
@@ -531,7 +541,7 @@ func (m *EvrMatch) MatchJoinAttempt(ctx context.Context, logger runtime.Logger, 
 	return state, true, mp.String()
 }
 
-func (m *EvrMatch) playerJoinAttempt(state *EvrMatchState, mp EntrantPresence) (*EntrantPresence, string) {
+func (m *EvrMatch) playerJoinAttempt(state *EvrMatchState, mp EntrantPresence, partyPresences []rtapi.UserPresence) (*EntrantPresence, string) {
 
 	// If this is a parking match, reject the player
 	if state.LobbyType == UnassignedLobby {
@@ -545,8 +555,18 @@ func (m *EvrMatch) playerJoinAttempt(state *EvrMatchState, mp EntrantPresence) (
 		}
 	}
 
+	// Purge expired reservations
+	for s, r := range state.Reservations {
+		if r.Expiry.Before(time.Now()) {
+			delete(state.Reservations, s)
+		}
+	}
+
+	openSlots := state.GetAvailablePlayerSlots() - len(state.Reservations)
+	partySize := 1 + len(partyPresences)
+
 	// If the lobby is full, reject them
-	if len(state.presences) >= MatchMaxSize {
+	if openSlots-partySize <= 0 || len(state.presences) >= MatchMaxSize {
 		return &mp, JoinRejectReasonLobbyFull
 	}
 
@@ -581,6 +601,31 @@ func (m *EvrMatch) playerJoinAttempt(state *EvrMatchState, mp EntrantPresence) (
 		}
 	}
 
+	// Create reservations for the party members (if any)
+	// Only the leader can reserve slots for the party.
+	// If this party already has any reservations, they will be purged.
+	if partySize > 1 {
+		for _, r := range state.Reservations {
+			if r.PartyID == mp.PartyID.String() {
+				delete(state.Reservations, r.SessionID)
+			}
+		}
+		// only public lobbies need to reserve slots for the party
+		if state.LobbyType == PublicLobby {
+			// Reserve slots for the party members
+			for _, p := range partyPresences {
+				if p.GetSessionId() == mp.GetSessionId() {
+					continue
+				}
+				state.Reservations[p.GetSessionId()] = SlotReservation{
+					PartyID:   mp.PartyID.String(),
+					SessionID: mp.GetSessionId(),
+					Expiry:    time.Now().Add(2 * time.Minute),
+				}
+			}
+		}
+	}
+
 	return &mp, ""
 }
 
@@ -605,6 +650,11 @@ func (m *EvrMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 			}).Error("Presence not found. this should never happen.")
 			return nil
 		}
+	}
+
+	// Remove this player from the reservation list
+	for _, p := range presences {
+		delete(state.Reservations, p.GetSessionId())
 	}
 
 	return state

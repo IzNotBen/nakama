@@ -90,6 +90,62 @@ var (
 	reverseSymbolTypes = make(map[string]uint64, len(SymbolTypes))
 )
 
+func generateSymbolSeed() [0x100]uint64 {
+	seed := [0x100]uint64{}
+	i := uint64(0)
+	s := uint64(0x95ac9329ac4bc9b5)
+	for i < 0x100 {
+		num1 := uint64(0)
+		if (i & 0x80) != 0 {
+			num1 = 0x2b5926535897936a
+		}
+
+		if (i & 0x40) != 0 {
+			num1 = 0xbef5b57af4dc5adf
+			if (i & 0x80) == 0 {
+				num1 = s
+			}
+		}
+
+		num2 := num1*2 ^ s
+		if (i & 0x20) == 0 {
+			num2 = num1 * 2
+		}
+
+		num1 = num2*2 ^ s
+		if (i & 0x10) == 0 {
+			num1 = num2 * 2
+		}
+
+		num2 = num1*2 ^ s
+		if (i & 8) == 0 {
+			num2 = num1 * 2
+		}
+
+		num1 = num2*2 ^ s
+		if (i & 4) == 0 {
+			num1 = num2 * 2
+		}
+
+		num2 = num1*2 ^ s
+		if (i & 2) == 0 {
+			num2 = num1 * 2
+		}
+
+		num1 = num2*2 ^ s
+		if (i & 1) == 0 {
+			num1 = num2 * 2
+		}
+
+		seed[i] = num1 * 2
+		i += 1
+	}
+
+	return seed
+}
+
+var symbolSeed [0x100]uint64 = generateSymbolSeed()
+
 type Symbol uint64
 
 func (s Symbol) HexString() string {
