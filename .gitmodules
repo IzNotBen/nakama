@@ -1,0 +1,9 @@
+[submodule "evrcat"]
+	path = evrcat
+	url = https://github.com/IzNotBen/evrcat
+[submodule "evr-proxy"]
+	path = evr-proxy
+	url = https://github.com/IzNotBen/evr-proxy
+[submodule "evr-game-server"]
+	path = evr-game-server
+	url = https://github.com/IzNotBen/evr-game-server
